@@ -25,3 +25,11 @@ jobs:
         run: make iso
       - name: QEMU cold boot and three-boot disk persistence check
         run: make test-qemu
+
+      - name: Publish tested bootable ISO
+        uses: actions/upload-artifact@v4
+        with:
+          name: samen-x64-boot-iso
+          path: build/Samen.iso
+          if-no-files-found: error
+          retention-days: 30
