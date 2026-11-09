@@ -1,0 +1,26 @@
+[package]
+name = "samen-kernel"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Samen: freestanding x86-64 Rust OS kernel"
+
+[lib]
+name = "samen_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "samen-kernel"
+path = "src/main.rs"
+test = false
+bench = false
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
+codegen-units = 1
+debug = true
