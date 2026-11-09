@@ -1,0 +1,27 @@
+name: Samen x64 kernel and filesystem
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  bare-metal:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
+      - name: Install boot and emulator tools
+        run: sudo apt-get update && sudo apt-get install -y xorriso qemu-system-x86 make
+      - name: Filesystem unit tests
+        run: make test
+      - name: Build freestanding x64 ELF and bootable ISO
+        run: make iso
+      - name: QEMU cold boot and three-boot disk persistence check
+        run: make test-qemu

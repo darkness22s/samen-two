@@ -1,0 +1,8 @@
+/target/
+/build/
+*.iso
+*.img
+*.hdd
+*.tar.gz
+__pycache__/
+*.pyc
