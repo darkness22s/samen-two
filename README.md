@@ -1,0 +1,42 @@
+# Samen
+
+**Samen** is an independent, text-only x86-64 operating-system kernel written in Rust. It is **not** Linux and does not need a host OS at runtime. The current target is QEMU/SeaBIOS on x86-64.
+
+## Features
+
+- Freestanding Rust kernel, `#![no_std]`, x86-64 ELF and Limine boot protocol
+- Polled COM1 serial shell; no GUI or windowing system
+- Primary-master ATA PIO disk driver with error/time-out handling
+- **SamenFS1**: persistent, sector-backed, single-directory filesystem with format, create/replace, read, list and delete
+- Fully self-contained kernel code (no third-party Rust crates)
+- Host-side filesystem unit tests and QEMU smoke/persistence integration tests
+
+## Build and run
+
+On Ubuntu/Debian, install `make curl tar xorriso qemu-system-x86 python3`. Install stable Rust via rustup and add `rustup target add x86_64-unknown-none`. Run:
+
+```sh
+make iso
+make run
+```
+
+`make run` creates `build/samen-data.img` once (16 MiB) and **never overwrites it** unless explicitly requested. Samen prints a serial prompt in the same terminal. Try:
+
+```text
+help
+ls
+write greeting Hello from Samen
+cat greeting
+ls
+rm greeting
+```
+
+Use `make test` for host filesystem tests and, when QEMU is installed, `make test-qemu` for boot and persistence testing.
+
+## Storage safety
+
+SamenFS1 is a small experimental **raw-disk** filesystem, not FAT or ext4. The ATA driver accesses the **primary-master IDE disk** (LBA0 is the superblock) and assumes a dedicated virtual disk. **Do not attach a physical disk or an image containing data you need.** There is no journaling, partition support, concurrent access, or power-loss safety. `format` erases the filesystem directory.
+
+## Scope
+
+This is an early single-core kernel, **not** a general-purpose desktop OS. It does not yet have multitasking, process isolation, networking, USB/SATA/NVMe support, or a userspace. The source, test scripts, and build system are included so functionality can be verified and extended.
