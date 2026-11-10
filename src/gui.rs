@@ -98,6 +98,7 @@ impl Framebuffer {
         | (u32::from(rgb[1])<<self.green_shift)
         | (u32::from(rgb[2])<<self.blue_shift)
     }
+    pub(crate) fn desktop_scale(&self)->f32 { self.scale() }
     fn scale(&self)->f32 {
         (self.width as f32/VIRTUAL_W as f32).min(self.height as f32/VIRTUAL_H as f32)
     }
@@ -142,7 +143,7 @@ impl Framebuffer {
         true
     }
     pub fn begin_scene(&mut self){self.scene.copy_from_slice(&self.wallpaper);}
-    fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
+    pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
         let idx=y as usize*self.width+x as usize;
         if alpha==255{self.scene[idx]=self.pack(c);return;}
@@ -292,73 +293,8 @@ impl Desktop {
         fb.present();
         fb.draw_cursor(self.x,self.y);
     }
-    fn rounded(fb:&mut Framebuffer,x:i32,y:i32,w:i32,h:i32,r:i32,c:[u8;3],a:u8){
-        for py in y..y+h {for px in x..x+w {
-            let dx=if px<x+r{x+r-px}else if px>=x+w-r{px-(x+w-r-1)}else{0};
-            let dy=if py<y+r{y+r-py}else if py>=y+h-r{py-(y+h-r-1)}else{0};
-            if dx*dx+dy*dy<=r*r {fb.logical_blend(px,py,c,a);}
-        }}
-    }
-    fn circle(fb:&mut Framebuffer,cx:i32,cy:i32,r:i32,c:[u8;3],a:u8){
-        for dy in -r..=r {for dx in -r..=r{
-            if dx*dx+dy*dy<=r*r{fb.logical_blend(cx+dx,cy+dy,c,a);}
-        }}
-    }
     fn paint_dock(&self,fb:&mut Framebuffer){
-        // Real live glass dock, NOT pixels from the original Figma screenshot.
-        // Soft offset shadow and milky translucent backplate.
-        Self::rounded(fb,260,422,194,55,17,[0,27,70],66);
-        Self::rounded(fb,260,417,194,55,17,[232,240,250],190);
-        Self::rounded(fb,262,418,190,2,1,[255,255,255],143);
-        for app in [App::Browser,App::Files,App::Settings] {
-            let (cx,cy)=(match app{
-                App::Browser=>309,App::Files=>357,App::Settings=>406
-            },445);
-            let selected=self.selected==Some(app);
-            Self::circle(fb,cx,cy+2,22,[23,37,69],57);
-            Self::circle(fb,cx,cy,21,if selected{[255,255,255]}else{[238,242,249]},211);
-            if selected {Self::circle(fb,cx,cy,19,[195,220,255],194);}
-            match app {
-                App::Browser=>Self::chrome(fb,cx,cy),
-                App::Files=>Self::folder(fb,cx,cy),
-                App::Settings=>Self::gear(fb,cx,cy),
-            }
-        }
-    }
-    fn chrome(fb:&mut Framebuffer,cx:i32,cy:i32) {
-        // Three colored Chrome-like segments and a blue center.
-        for dy in -16..=16{for dx in -16..=16{
-            if dx*dx+dy*dy<=16*16{
-                let col=if dy<=-3 && dx<=9 {[231,70,62]}
-                        else if dx>=4 && dy<=12 {[246,197,48]}
-                        else {[58,163,82]};
-                fb.logical_blend(cx+dx,cy+dy,col,255);
-            }
-        }}
-        Self::circle(fb,cx,cy,9,[239,242,248],255);
-        Self::circle(fb,cx,cy,7,[46,140,231],255);
-        Self::circle(fb,cx-2,cy-2,2,[105,194,255],235);
-    }
-    fn folder(fb:&mut Framebuffer,cx:i32,cy:i32){
-        // Actual geometry, including folder tab and blue surface.
-        Self::rounded(fb,cx-16,cy-11,16,8,3,[83,160,217],255);
-        Self::rounded(fb,cx-17,cy-7,35,23,4,[65,162,227],255);
-        Self::rounded(fb,cx-15,cy-5,31,19,3,[127,203,252],255);
-        Self::rounded(fb,cx-13,cy-2,27,2,1,[222,246,255],167);
-    }
-    fn gear(fb:&mut Framebuffer,cx:i32,cy:i32){
-        // Dark rounded tile with 8 gear teeth, ring and central bore.
-        Self::rounded(fb,cx-18,cy-18,36,36,8,[45,57,73],255);
-        Self::rounded(fb,cx-16,cy-16,32,32,7,[73,87,105],250);
-        for dy in -13i32..=13i32{for dx in -13i32..=13i32{
-            let d2=dx*dx+dy*dy;
-            let tooth=(dx.abs()<4||dy.abs()<4||
-              (dx.abs()-dy.abs()).abs()<3);
-            if (d2<=121&&d2>=64)||(tooth&&d2<=178&&d2>=112){
-                fb.logical_blend(cx+dx,cy+dy,[239,244,251],255);
-            }
-        }}
-        Self::circle(fb,cx,cy,5,[70,85,105],255);
+        crate::dock::draw(fb,self.selected);
     }
     fn icon_box(&self,app:App)->(i32,i32,i32,i32){
         let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Settings=>(382,432)};

@@ -104,7 +104,7 @@ def verify(iso: Path) -> None:
                 w,h,rgb=ppm_rgb(dump)
                 if len(rgb)!=w*h*3 or w<640 or h<480:
                     raise AssertionError(f"Invalid framebuffer screenshot {(w,h)}")
-                if "native 2048x1152 wallpaper, double buffered, separate real dock" not in boot:
+                if "native 2048x1152 wallpaper, double buffered, 4x4 MSAA dock" not in boot:
                     raise AssertionError("New native renderer not initialized")
                 if w<1600 or h<900:
                     raise AssertionError(f"Requested high-resolution VGA mode unavailable: {(w,h)}")

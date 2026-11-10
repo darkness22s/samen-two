@@ -6,7 +6,7 @@
 
 - Freestanding Rust kernel, `#![no_std]`, x86-64 ELF and Limine boot protocol
 - **Native high-resolution desktop:** the original 2048×1152 desert wallpaper is JPEG-decoded once and aspect-correctly scaled to the actual framebuffer; the original SAMEN wordmark is a separate antialiased alpha layer. The old 692×498 flattened screenshot is no longer used at runtime.
-- **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Settings icons, selection feedback and application windows are rendered by Rust code as independent layers.
+- **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Settings icons, selection feedback and application windows are rendered by Rust code as independent layers. The dock uses a dedicated **native-framebuffer vector renderer with 4×4 subpixel antialiasing**, rather than scaling its geometry up from the logical 692×498 grid. Colors are blended against the real desktop scene at full hardware resolution.
 - **Flicker-resistant compositor:** the scene and wallpaper live in normal RAM; complete scene updates are presented only after composition, while ordinary PS/2 mouse movement restores a small cursor rectangle instead of repainting the screen.
 - **High-resolution output:** Limine requests 1920×1080×32 where the display/video firmware supports it, with correct aspect ratio and framebuffer-mode fallback.
 - **Interactive windows:** click dock icons to open Files, Settings or Browser; drag title bars; use close, minimize, maximize and restore controls

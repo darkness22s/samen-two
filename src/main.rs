@@ -5,6 +5,7 @@
 mod arch;
 mod ata;
 mod gui;
+mod dock;
 mod ps2;
 mod heap;
 mod windows;
@@ -62,7 +63,7 @@ pub extern "C" fn _start() -> ! {
         if let Some(mut desktop) = gui::Desktop::initialize(&mut fb) {
             let (width,height) = fb.dimensions();
             kprintln!("GUI: ready framebuffer={}x{} bpp=32", width, height);
-            kprintln!("GUI: native 2048x1152 wallpaper, double buffered, separate real dock");
+            kprintln!("GUI: native 2048x1152 wallpaper, double buffered, 4x4 MSAA dock");
             let mouse = gui::mouse_init();
             kprintln!("GUI: PS/2 mouse {}", if mouse.is_some() { "ready" } else { "unavailable" });
             kprintln!("GUI: Chrome/Files/Settings dock hit areas enabled");
