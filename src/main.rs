@@ -101,9 +101,18 @@ fn graphics_shell(
                 }
                 ps2::InputEvent::Key(key)=>{
                     if desktop.windows.terminal_focused(){
+                        let submit=matches!(key,ps2::Key::Enter);
                         if desktop.windows.terminal.feed(key,disk,fs){
-                            desktop.windows.sync_files(fs.as_ref());
-                            desktop.paint_all(fb);
+                            if submit{
+                                desktop.windows.sync_files(fs.as_ref());
+                                desktop.paint_all(fb);
+                            }else {
+                                // Keep keyboard scanning responsive under QEMU:
+                                // only paint the ~40px input region per keystroke.
+                                if desktop.windows.repaint_terminal_input(fb){
+                                    fb.draw_cursor(desktop.x,desktop.y);
+                                }
+                            }
                         }
                     }
                 }
