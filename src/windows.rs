@@ -337,6 +337,27 @@ impl Manager {
             ui.text(x+131.0,y+h-25.0,10.0,false,"Select a file to preview",MUTED,w-157.0);
         }
     }
+    fn draw_prompt(&self,ui:&mut Ui<'_>,r:Rect){
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        ui.rect(x+16.0,y+h-42.5,w-32.0,0.6,[77,97,119],180);
+        ui.text(x+21.0,y+h-21.0,11.2,true,"~ %",[111,234,179],34.0);
+        let input=core::str::from_utf8(&self.terminal.input[..self.terminal.input_len]).unwrap_or("");
+        ui.text(x+57.0,y+h-21.0,11.2,false,input,[234,241,250],w-87.0);
+        let cursor_x=x+57.0+(self.terminal.input_len as f32*6.25).min(w-91.0);
+        ui.caret(cursor_x,y+h-16.0,13.0,[105,237,183]);
+    }
+    /// Update only the Terminal input strip. No full-window redraw per letter.
+    pub fn repaint_terminal_input(&self,fb:&mut Framebuffer)->bool{
+        if !self.terminal_focused(){return false;}
+        let r=self.windows[2].rect;
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        let mut ui=Ui::new(fb);
+        ui.round(x+15.0,y+h-42.0,w-30.0,33.0,5.0,[23,35,52],255);
+        self.draw_prompt(&mut ui,r);
+        drop(ui);
+        fb.present_logical_region(r.x+13,r.y+r.h-45,r.w-26,40);
+        true
+    }
     fn draw_terminal(&self,ui:&mut Ui<'_>,r:Rect){
         let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
         ui.round(x+14.0,y+39.0,w-28.0,27.0,8.0,[35,55,75],255);
@@ -358,13 +379,6 @@ impl Manager {
             row+=1;
         }
         ui.clear_clip();
-        ui.rect(x+16.0,y+h-42.5,w-32.0,0.6,[77,97,119],180);
-        ui.text(x+21.0,y+h-21.0,11.2,true,"~ %",[111,234,179],34.0);
-        let input=core::str::from_utf8(&self.terminal.input[..self.terminal.input_len])
-            .unwrap_or("");
-        ui.text(x+57.0,y+h-21.0,11.2,false,input,[234,241,250],w-87.0);
-        // Thin insertion caret; no animation is needed, so no flicker.
-        let cursor_x=x+57.0+(self.terminal.input_len as f32*6.25).min(w-91.0);
-        ui.caret(cursor_x,y+h-16.0,13.0,[105,237,183]);
+        self.draw_prompt(ui,r);
     }
 }
