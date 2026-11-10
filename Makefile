@@ -52,7 +52,7 @@ run: iso disk
 	$(QEMU) -machine pc -cpu qemu64 -m 256M -smp 1 \
 	  -cdrom $(ISO) -boot d \
 	  -drive file=$(DISK),format=raw,if=ide,index=0 \
-	  -display none -monitor none -serial stdio -no-reboot
+	  -vga std -monitor none -serial stdio -no-reboot
 
 test:
 	$(CARGO) test --lib --target $(HOST_TARGET)

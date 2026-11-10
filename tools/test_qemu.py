@@ -101,6 +101,8 @@ def smoke_test(iso: Path) -> None:
         guest = Guest(iso, disk)
         try:
             guest.command("ls", "No files.")
+            guest.command("gui status", "GUI: selected none")
+            guest.command("gui files", "GUI: selected Files")
             guest.command("write persisted Saved across reboots", "Saved 'persisted'")
             guest.command("cat persisted", "Saved across reboots")
             guest.exit()
