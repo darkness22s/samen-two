@@ -214,9 +214,7 @@ def verify(iso: Path) -> None:
                 # Create a file THROUGH the graphical terminal's keyboard,
                 # then verify the persistent SamenFS1 storage from serial.
                 # Use short scancodes to avoid QEMU monitor key-name aliases.
-                for char in "write ":
-                    cmd(monitor,"sendkey spc" if char==" " else f"sendkey {char}")
-                for char in "keyboard spc works":
+                for char in "write keyboard works":
                     cmd(monitor,"sendkey spc" if char==" " else f"sendkey {char}")
                 start=len(guest.log)
                 cmd(monitor,"sendkey ret")
