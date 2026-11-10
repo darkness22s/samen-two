@@ -6,14 +6,9 @@
 use alloc::{vec, vec::Vec};
 use core::ptr::{copy_nonoverlapping, read_volatile, write_volatile};
 use crate::{kprintln, ps2::Mouse, windows::{Manager, Action}};
-use zune_jpeg::JpegDecoder;
-use zune_jpeg::zune_core::{
-    bytestream::ZCursor,
-    colorspace::ColorSpace,
-    options::DecoderOptions,
-};
+use samen_kernel::qoi::decode_rgb;
 
-const WALLPAPER: &[u8] = include_bytes!("../assets/source-wallpaper.jpg");
+const WALLPAPER: &[u8] = include_bytes!("../assets/wallpaper-full-hd.qoi");
 const LOGO_MASK: &[u8] = include_bytes!("../assets/logo-alpha-240x95.bin");
 const WALL_W: usize=2048;
 const WALL_H: usize=1152;
@@ -150,6 +145,30 @@ impl Framebuffer {
         self.desktop_cache.copy_from_slice(&self.scene);
         self.cache_ready=true;
     }
+    pub(crate) fn fill_span_native(&mut self,y:i32,x0:i32,x1:i32,c:[u8;3],a:u8){
+        if a==0||y<0||y>=self.height as i32{return;}
+        let lo=x0.max(0).min(self.width as i32) as usize;
+        let hi=x1.max(0).min(self.width as i32) as usize;
+        if lo>=hi{return;}
+        let start=y as usize*self.width+lo;
+        let end=y as usize*self.width+hi;
+        let pixel=self.pack(c);
+        if a==255{
+            self.scene[start..end].fill(pixel);
+            return;
+        }
+        let alpha=u32::from(a);
+        let inverse=255-alpha;
+        let cr=u32::from(c[0])*alpha;
+        let cg=u32::from(c[1])*alpha;
+        let cb=u32::from(c[2])*alpha;
+        for old in &mut self.scene[start..end] {
+            let r=(cr+((*old>>self.red_shift)&255)*inverse+127)/255;
+            let g=(cg+((*old>>self.green_shift)&255)*inverse+127)/255;
+            let b=(cb+((*old>>self.blue_shift)&255)*inverse+127)/255;
+            *old=(r<<self.red_shift)|(g<<self.green_shift)|(b<<self.blue_shift);
+        }
+    }
     pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
         let idx=y as usize*self.width+x as usize;
@@ -159,6 +178,22 @@ impl Framebuffer {
         let g=(u32::from(c[1])*a+((old>>self.green_shift)&255)*(255-a)+127)/255;
         let b=(u32::from(c[2])*a+((old>>self.blue_shift)&255)*(255-a)+127)/255;
         self.scene[idx]=(r<<self.red_shift)|(g<<self.green_shift)|(b<<self.blue_shift);
+    }
+    pub(crate) fn present_logical_region(&mut self,x:i32,y:i32,w:i32,h:i32){
+        let (x0,y0)=self.to_screen(x,y);
+        let (x1,y1)=self.to_screen(x+w,y+h);
+        let left=x0.max(0).min(self.width as i32) as usize;
+        let right=x1.max(0).min(self.width as i32) as usize;
+        let top=y0.max(0).min(self.height as i32) as usize;
+        let bottom=y1.max(0).min(self.height as i32) as usize;
+        if left>=right||top>=bottom{return;}
+        for py in top..bottom{
+            unsafe {
+                let src=self.scene.as_ptr().add(py*self.width+left);
+                let dst=self.address.add(py*self.pitch+left*4).cast::<u32>();
+                copy_nonoverlapping(src,dst,right-left);
+            }
+        }
     }
     pub fn present(&mut self){
         // The complete image is composed off-screen; there is never a visible
@@ -238,10 +273,10 @@ impl Framebuffer {
 }
 
 #[derive(Clone,Copy,PartialEq,Eq,Debug)]
-pub enum App {Browser,Files,Settings}
+pub enum App {Browser,Files,Terminal}
 impl App {
     pub fn label(self)->&'static str {
-        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Settings=>"Settings"}
+        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Terminal=>"Terminal"}
     }
 }
 pub struct Desktop {
@@ -254,15 +289,20 @@ pub struct Desktop {
 }
 impl Desktop {
     pub fn initialize(fb:&mut Framebuffer)->Option<Self>{
-        // A single JPEG decode at boot instead of scaling and recomposing a
-        // tiny, baked-in desktop image on every mouse movement.
-        let opts=DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
-        let mut decoder=JpegDecoder::new_with_options(ZCursor::new(WALLPAPER),opts);
-        let pixels=decoder.decode().ok()?;
+        kprintln!("GUI: decoding high resolution wallpaper");
+        // The wallpaper is a lossless RGB QOI encoding of the original
+        // 2048x1152 image. Decode with our bounded, allocator-independent
+        // algorithm instead of the general JPEG decoder's boot-time heap path.
+        let mut pixels=vec![0u8;WALL_W*WALL_H*3];
+        if !decode_rgb(WALLPAPER,&mut pixels){return None;}
+        kprintln!("GUI: wallpaper decoded");
         if !fb.install_wallpaper(&pixels){return None;}
+        kprintln!("GUI: wallpaper framebuffer ready");
         let mut desktop=Self{x:(fb.width/2) as i32,y:(fb.height/2) as i32,
             selected:None,windows:Manager::new(),scene_redraws:0,cursor_updates:0};
+        kprintln!("GUI: composing desktop");
         desktop.paint_all(fb);
+        kprintln!("GUI: desktop composition complete");
         Some(desktop)
     }
     fn paint_logo(&self,fb:&mut Framebuffer){
@@ -308,12 +348,12 @@ impl Desktop {
         fb.draw_cursor(self.x,self.y);
     }
     fn icon_box(&self,app:App)->(i32,i32,i32,i32){
-        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Settings=>(382,432)};
+        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Terminal=>(382,432)};
         (a,422,b,471)
     }
     pub fn hit_test(&self,fb:&Framebuffer,x:usize,y:usize)->Option<App>{
         let (lx,ly)=fb.from_screen(x as i32,y as i32);
-        for app in [App::Browser,App::Files,App::Settings]{
+        for app in [App::Browser,App::Files,App::Terminal]{
             let (x0,y0,x1,y1)=self.icon_box(app);
             if lx>=x0 && ly>=y0 && lx<x1 && ly<y1{return Some(app);}
         }

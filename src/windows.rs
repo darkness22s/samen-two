@@ -1,25 +1,32 @@
-//! Small fixed-capacity desktop window manager for Samen's framebuffer.
-//! All coordinates are in the 692x498 Figma artwork's coordinate space.
-use crate::gui::{App, Framebuffer};
+//! Native-resolution Samen application windows. Geometry is specified in
+//! Figma's logical layout coordinates, then rasterized at the REAL screen
+//! resolution with smooth primitives and antialiased Inter-derived text.
+use crate::gui::{App,Framebuffer};
+use crate::terminal::Terminal;
+use crate::ui::Ui;
 use samen_kernel::fs::Fs;
 
-pub const ART_W: i32 = 692;
-pub const ART_H: i32 = 498;
-const TITLE_H: i32 = 27;
-const TEXT: [u8;3] = [27,40,68];
-const BLUE: [u8;3] = [31,111,213];
+pub const ART_W:i32=692;
+pub const ART_H:i32=498;
+const TITLE_H:i32=29;
+type Color=[u8;3];
+const INK:Color=[36,54,76];
+const MUTED:Color=[111,129,152];
+const BLUE:Color=[48,116,208];
+const PALE:Color=[236,244,254];
+const HAIRLINE:Color=[213,224,237];
 
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
-pub enum Action { None, CreateSample, DeleteSelected, PreviewSelected }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Rect {pub x:i32,pub y:i32,pub w:i32,pub h:i32}
-impl Rect {
-    pub fn contains(self,x:i32,y:i32)->bool {
-        x>=self.x && y>=self.y && x<self.x+self.w && y<self.y+self.h
+pub enum Action{None,CreateSample,DeleteSelected,PreviewSelected}
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub struct Rect{pub x:i32,pub y:i32,pub w:i32,pub h:i32}
+impl Rect{
+    pub fn contains(self,x:i32,y:i32)->bool{
+        x>=self.x&&y>=self.y&&x<self.x+self.w&&y<self.y+self.h
     }
 }
 #[derive(Clone,Copy)]
-pub struct Window {
+pub struct Window{
     pub app:App,
     pub open:bool,
     pub minimized:bool,
@@ -29,21 +36,21 @@ pub struct Window {
     z:u32,
 }
 impl Window {
-    const fn new(app:App, x:i32,y:i32)->Self{
+    const fn new(app:App,x:i32,y:i32)->Self {
         let rect=Rect{x,y,w:474,h:302};
         Self{app,open:false,minimized:false,maximized:false,rect,restore:rect,z:0}
     }
 }
 #[derive(Clone,Copy)]
-pub struct FileRow {name:[u8;31],pub size:u32}
-impl FileRow {
+pub struct FileRow{pub name:[u8;31],pub size:u32}
+impl FileRow{
     const EMPTY:Self=Self{name:[0;31],size:0};
-    pub fn name(&self)->&str {
+    pub fn name(&self)->&str{
         let n=self.name.iter().position(|c|*c==0).unwrap_or(31);
         core::str::from_utf8(&self.name[..n]).unwrap_or("?")
     }
 }
-pub struct Manager {
+pub struct Manager{
     pub windows:[Window;3],
     order:u32,
     dragging:Option<(usize,i32,i32)>,
@@ -52,55 +59,66 @@ pub struct Manager {
     pub selected_file:Option<usize>,
     pub preview:[u8;256],
     pub preview_len:usize,
-    pub glass:bool,
-    pub fast_pointer:bool,
-    pub purple_accent:bool,
     pub browser_help:bool,
+    pub fast_pointer:bool,
+    pub terminal:Terminal,
 }
 impl Manager {
-    pub fn new()->Self {
-        Self {
-            windows:[Window::new(App::Browser,105,73),Window::new(App::Files,117,76),
-                     Window::new(App::Settings,128,81)],
+    pub fn new()->Self{
+        Self{
+            windows:[
+                Window::new(App::Browser,105,73),
+                Window::new(App::Files,117,76),
+                Window::new(App::Terminal,128,81),
+            ],
             order:1,dragging:None,files:[FileRow::EMPTY;24],file_count:0,
-            selected_file:None,preview:[0;256],preview_len:0,glass:true,
-            fast_pointer:false,purple_accent:false,browser_help:false,
+            selected_file:None,preview:[0;256],preview_len:0,
+            browser_help:false,fast_pointer:false,terminal:Terminal::new(),
         }
     }
-    pub fn sync_files(&mut self,fs:Option<&Fs>) {
+    pub fn sync_files(&mut self,fs:Option<&Fs>){
         self.file_count=0;
         if let Some(fs)=fs {
-            for f in fs.files().take(self.files.len()) {
-                self.files[self.file_count]=FileRow{name:f.name_bytes,size:f.size};
+            for entry in fs.files().take(self.files.len()){
+                self.files[self.file_count]=FileRow{name:entry.name_bytes,size:entry.size};
                 self.file_count+=1;
             }
         }
-        if self.selected_file.is_some_and(|i|i>=self.file_count) {
+        if self.selected_file.is_some_and(|i|i>=self.file_count){
             self.selected_file=None;
             self.preview_len=0;
         }
     }
-    pub fn open(&mut self,app:App) {
+    fn index(&self,app:App)->usize{
+        match app{App::Browser=>0,App::Files=>1,App::Terminal=>2}
+    }
+    fn focus(&mut self,i:usize){
+        self.order=self.order.wrapping_add(1).max(1);
+        self.windows[i].z=self.order;
+    }
+    pub fn open(&mut self,app:App){
         let i=self.index(app);
         self.windows[i].open=true;
         self.windows[i].minimized=false;
         self.focus(i);
     }
-    fn index(&self,app:App)->usize {match app{App::Browser=>0,App::Files=>1,App::Settings=>2}}
-    fn focus(&mut self,i:usize){
-        self.order=self.order.wrapping_add(1).max(1);
-        self.windows[i].z=self.order;
+    pub fn is_open(&self,app:App)->bool{
+        let w=&self.windows[self.index(app)];
+        w.open&&!w.minimized
     }
-    pub fn is_open(&self,app:App)->bool {let w=&self.windows[self.index(app)];w.open&&!w.minimized}
     pub fn front(&self)->Option<App>{
-        self.windows.iter().filter(|w|w.open&&!w.minimized).max_by_key(|w|w.z).map(|w|w.app)
+        self.windows.iter()
+            .filter(|w|w.open&&!w.minimized)
+            .max_by_key(|w|w.z)
+            .map(|w|w.app)
     }
+    pub fn terminal_focused(&self)->bool{self.front()==Some(App::Terminal)}
     pub fn title_position(&self,app:App)->Rect{self.windows[self.index(app)].rect}
     pub fn file_name(&self)->Option<&str>{
         let i=self.selected_file?;
         if i<self.file_count{Some(self.files[i].name())}else{None}
     }
-    pub fn set_preview(&mut self,bytes:&[u8]) {
+    pub fn set_preview(&mut self,bytes:&[u8]){
         self.preview_len=bytes.len().min(self.preview.len());
         self.preview[..self.preview_len].copy_from_slice(&bytes[..self.preview_len]);
     }
@@ -109,67 +127,56 @@ impl Manager {
         if !down {self.dragging=None;return;}
         let Some((i,dx,dy))=self.dragging else{return};
         let w=&mut self.windows[i];
-        if !w.maximized {
-            w.rect.x=(x-dx).clamp(-w.rect.w+70,ART_W-70);
-            w.rect.y=(y-dy).clamp(0,ART_H-70);
+        if !w.maximized{
+            w.rect.x=(x-dx).clamp(-w.rect.w+75,ART_W-75);
+            w.rect.y=(y-dy).clamp(0,ART_H-72);
         }
     }
-    pub fn click(&mut self,x:i32,y:i32)->Action {
-        // Topmost window first: every window can be focused, dragged or closed.
-        let mut target=None;
-        let mut top=0;
-        for i in 0..3 {
+    pub fn click(&mut self,x:i32,y:i32)->Action{
+        let mut target=None;let mut top=0;
+        for i in 0..3{
             let w=self.windows[i];
-            if w.open&&!w.minimized&&w.rect.contains(x,y)&&w.z>=top {
+            if w.open&&!w.minimized&&w.rect.contains(x,y)&&w.z>=top{
                 top=w.z;target=Some(i);
             }
         }
         let Some(i)=target else{return Action::None};
         self.focus(i);
         let r=self.windows[i].rect;
-        let relx=x-r.x;
-        let rely=y-r.y;
-        if rely<TITLE_H {
-            if relx>=r.w-31 {
-                self.windows[i].open=false;
-                self.dragging=None;
-            } else if relx>=r.w-57 {
-                self.windows[i].minimized=true;
-                self.dragging=None;
-            } else if relx>=r.w-84 {
+        let relx=x-r.x;let rely=y-r.y;
+        if rely<TITLE_H{
+            if relx>=r.w-31{
+                self.windows[i].open=false;self.dragging=None;
+            }else if relx>=r.w-57{
+                self.windows[i].minimized=true;self.dragging=None;
+            }else if relx>=r.w-84{
                 let w=&mut self.windows[i];
-                if w.maximized {w.rect=w.restore;} else {
+                if w.maximized{w.rect=w.restore;}else{
                     w.restore=w.rect;
                     w.rect=Rect{x:14,y:21,w:ART_W-28,h:ART_H-105};
                 }
-                w.maximized=!w.maximized;
-                self.dragging=None;
-            } else {
+                w.maximized=!w.maximized;self.dragging=None;
+            }else{
                 self.dragging=Some((i,relx,rely));
             }
             return Action::None;
         }
-        match self.windows[i].app {
+        match self.windows[i].app{
             App::Browser=>{
-                // Home and help are local pages; networking/HTML are not implemented.
-                if rely<64 {
-                    if relx<84 {self.browser_help=false;}
-                    else if relx<165 {self.browser_help=true;}
+                if (34..70).contains(&rely){
+                    if (12..93).contains(&relx){self.browser_help=false;}
+                    if (93..175).contains(&relx){self.browser_help=true;}
                 }
             }
-            App::Settings=>{
-                if rely>=91&&rely<137 {self.glass=!self.glass;}
-                else if rely>=153&&rely<200 {self.fast_pointer=!self.fast_pointer;}
-                else if rely>=218&&rely<266 {self.purple_accent=!self.purple_accent;}
-            }
+            App::Terminal=>{}
             App::Files=>{
-                if rely>=34 && rely<67 {
-                    if relx<117{return Action::CreateSample;}
-                    if relx<214{return Action::DeleteSelected;}
+                if (34..72).contains(&rely){
+                    if (13..120).contains(&relx){return Action::CreateSample;}
+                    if (120..215).contains(&relx){return Action::DeleteSelected;}
                 }
-                if rely>=93 {
+                if (93..265).contains(&rely)&&relx>=119{
                     let index=((rely-93)/24) as usize;
-                    if index<self.file_count && index<7 {
+                    if index<self.file_count&&index<7{
                         self.selected_file=Some(index);
                         self.preview_len=0;
                         return Action::PreviewSelected;
@@ -182,174 +189,196 @@ impl Manager {
     pub fn release(&mut self){self.dragging=None;}
     pub fn is_dragging(&self)->bool{self.dragging.is_some()}
     pub fn draw(&self,fb:&mut Framebuffer){
-        let mut painted=[false;3];
-        for _ in 0..3 {
+        let mut drawn=[false;3];
+        for _ in 0..3{
             let mut candidate=None;
-            for i in 0..3 {
+            for i in 0..3{
                 let w=&self.windows[i];
-                if !painted[i]&&w.open&&!w.minimized&&candidate.is_none_or(|j:usize| w.z<self.windows[j].z){
+                if !drawn[i]&&w.open&&!w.minimized
+                   &&candidate.is_none_or(|j:usize|w.z<self.windows[j].z){
                     candidate=Some(i);
                 }
             }
-            if let Some(i)=candidate {self.draw_window(fb,self.windows[i]);painted[i]=true;}
+            if let Some(i)=candidate{
+                self.draw_window(fb,self.windows[i]);
+                drawn[i]=true;
+            }
         }
     }
-    fn accent(&self)->[u8;3]{if self.purple_accent{[116,87,201]}else{BLUE}}
-    fn draw_window(&self,fb:&mut Framebuffer,w:Window) {
+    fn draw_window(&self,fb:&mut Framebuffer,w:Window){
+        let mut ui=Ui::new(fb);
         let r=w.rect;
-        // Soft shadow, rounded light glass panels and a light toolbar.
-        rounded(fb,Rect{x:r.x+5,y:r.y+7,w:r.w,h:r.h},14,[9,25,55],78);
-        rounded(fb,r,13,[248,249,252],if self.glass{234}else{255});
-        rect(fb,Rect{x:r.x+1,y:r.y+TITLE_H,w:r.w-2,h:1},[194,203,217],255);
-        text(fb,r.x+15,r.y+10,w.app.label(),TEXT,1);
-        for (idx,color) in [[245,97,93],[247,190,67],[76,201,110]].iter().enumerate(){
-            // Window controls are deliberately modest and work from the pointer.
-            let x=r.x+r.w-20-idx as i32*26;
-            circle(fb,x,r.y+13,7,*color);
+        let (x,y,ww,hh)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        let is_terminal=w.app==App::Terminal;
+        ui.round(x+4.5,y+9.0,ww,hh,13.7,[3,22,50],45);
+        ui.round(x+2.0,y+4.5,ww,hh,14.0,[17,40,80],28);
+        ui.round(x,y,ww,hh,13.4,if is_terminal{[21,31,47]}else{[250,252,255]},255);
+        ui.round(x+0.7,y+0.7,ww-1.4,hh-1.4,12.7,
+                 if is_terminal{[23,35,52]}else{[248,251,255]},255);
+        // Top inset title bar and hairline reinforce the bright glass style.
+        ui.round(x+2.0,y+2.0,ww-4.0,30.0,11.0,
+                 if is_terminal{[28,42,60]}else{[244,248,253]},255);
+        ui.rect(x+1.0,y+28.2,ww-2.0,3.5,
+                if is_terminal{[28,42,60]}else{[244,248,253]},255);
+        ui.rect(x+13.0,y+31.0,ww-26.0,0.6,
+                if is_terminal{[75,96,121]}else{HAIRLINE},170);
+        ui.text(x+17.0,y+20.5,12.2,true,w.app.label(),
+                if is_terminal{[226,235,248]}else{INK},ww-127.0);
+        let dot_colors:[[u8;3];3]=[
+            [241,99,100],[247,189,86],[71,197,128]
+        ];
+        for (n,color) in dot_colors.iter().enumerate(){
+            let cx=x+ww-20.0-n as f32*26.0;
+            ui.circle(cx,y+13.5,6.7,*color,255);
+            ui.circle(cx-1.8,y+11.6,1.4,[255,255,255],76);
         }
-        match w.app {
-            App::Browser=>self.draw_browser(fb,r),
-            App::Files=>self.draw_files(fb,r),
-            App::Settings=>self.draw_settings(fb,r),
-        }
-    }
-    fn draw_browser(&self,fb:&mut Framebuffer,r:Rect){
-        let a=self.accent();
-        rounded(fb,Rect{x:r.x+13,y:r.y+35,w:75,h:25},7,[229,235,246],255);
-        text(fb,r.x+23,r.y+44,"HOME",TEXT,1);
-        rounded(fb,Rect{x:r.x+94,y:r.y+35,w:74,h:25},7,[229,235,246],255);
-        text(fb,r.x+105,r.y+44,"HELP",TEXT,1);
-        rounded(fb,Rect{x:r.x+177,y:r.y+35,w:r.w-190,h:25},7,[235,239,246],255);
-        text(fb,r.x+191,r.y+44,if self.browser_help{"about:help"}else{"about:samen"},[84,93,112],1);
-        rect(fb,Rect{x:r.x+13,y:r.y+72,w:r.w-26,h:1},[205,212,224],255);
-        text(fb,r.x+27,r.y+94,if self.browser_help{"BROWSER HELP"}else{"SAMEN BROWSER"},a,2);
-        text(fb,r.x+27,r.y+131,if self.browser_help{"HOME RETURNS TO THE START PAGE."}else{"WELCOME TO SAMEN."},TEXT,1);
-        text(fb,r.x+27,r.y+156,if self.browser_help{"REAL WEB SUPPORT REQUIRES NETWORKING."}else{"THE WINDOW IS INTERACTIVE."},TEXT,1);
-        text(fb,r.x+27,r.y+181,"NO HTTP OR HTML ENGINE INSTALLED YET.",[87,102,128],1);
-        text(fb,r.x+27,r.y+235,"SAMEN OS  /  LOCAL PAGE",a,1);
-    }
-    fn draw_settings(&self,fb:&mut Framebuffer,r:Rect) {
-        let accent=self.accent();
-        text(fb,r.x+20,r.y+48,"APPEARANCE & INPUT",accent,2);
-        for (idx,(name,description,on)) in [
-            ("GLASS WINDOWS","TRANSLUCENT WINDOW PANELS",self.glass),
-            ("POINTER SPEED","DOUBLE CURSOR SPEED",self.fast_pointer),
-            ("PURPLE ACCENT","SWITCH WINDOW ACCENT",self.purple_accent),
-        ].iter().enumerate() {
-            let y=r.y+92+idx as i32*63;
-            rounded(fb,Rect{x:r.x+17,y:y-9,w:r.w-34,h:52},9,[236,240,248],236);
-            text(fb,r.x+28,y+1,name,TEXT,1);
-            text(fb,r.x+28,y+19,description,[105,117,136],1);
-            rounded(fb,Rect{x:r.x+r.w-73,y:y+4,w:43,h:23},12,if *on {accent}else{[164,175,190]},255);
-            circle(fb,if *on {r.x+r.w-43}else{r.x+r.w-62},y+15,8,[255,255,255]);
+        match w.app{
+            App::Browser=>self.draw_browser(&mut ui,r),
+            App::Files=>self.draw_files(&mut ui,r),
+            App::Terminal=>self.draw_terminal(&mut ui,r),
         }
     }
-    fn draw_files(&self,fb:&mut Framebuffer,r:Rect) {
-        let accent=self.accent();
-        rounded(fb,Rect{x:r.x+15,y:r.y+35,w:103,h:29},8,accent,255);
-        text(fb,r.x+25,r.y+46,"NEW SAMPLE",[255,255,255],1);
-        rounded(fb,Rect{x:r.x+125,y:r.y+35,w:82,h:29},8,[229,235,245],255);
-        text(fb,r.x+137,r.y+46,"DELETE",TEXT,1);
-        text(fb,r.x+224,r.y+46,"SAMENFS1",TEXT,1);
-        rect(fb,Rect{x:r.x+14,y:r.y+82,w:r.w-28,h:1},[205,211,221],255);
-        text(fb,r.x+22,r.y+79,"NAME",TEXT,1);
-        text(fb,r.x+r.w-115,r.y+79,"BYTES",TEXT,1);
-        if self.file_count==0 {
-            text(fb,r.x+30,r.y+115,"NO FILES. CLICK NEW SAMPLE.",[99,112,132],1);
+    fn draw_browser(&self,ui:&mut Ui<'_>,r:Rect){
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        // Native toolbar with functional Home and Help tabs.
+        ui.round(x+14.0,y+38.0,74.0,30.0,9.0,
+                 if !self.browser_help{[215,231,255]}else{[239,244,250]},255);
+        ui.text(x+29.0,y+57.7,11.0,true,"Home",
+                if !self.browser_help{BLUE}else{MUTED},51.0);
+        ui.round(x+94.0,y+38.0,74.0,30.0,9.0,
+                 if self.browser_help{[215,231,255]}else{[239,244,250]},255);
+        ui.text(x+110.0,y+57.7,11.0,true,"Guide",
+                if self.browser_help{BLUE}else{MUTED},51.0);
+        ui.round(x+177.0,y+38.0,w-193.0,30.0,9.0,[238,244,250],255);
+        ui.circle(x+191.0,y+53.0,4.3,[86,165,229],255);
+        ui.text(x+203.0,y+57.7,10.5,false,
+                if self.browser_help{"samen://guide"}else{"samen://home"},
+                [100,118,140],w-232.0);
+        ui.rect(x+14.0,y+78.0,w-28.0,0.6,HAIRLINE,178);
+        if self.browser_help{
+            ui.round(x+15.0,y+89.0,w-30.0,h-105.0,14.0,[239,246,255],255);
+            ui.text(x+35.0,y+125.0,19.5,true,"Welcome to Samen",INK,w-60.0);
+            ui.text(x+35.0,y+153.0,11.2,false,"This is a local browser preview.",MUTED,w-65.0);
+            ui.text(x+35.0,y+177.0,11.2,false,"Home and Guide tabs respond to clicks.",MUTED,w-65.0);
+            ui.text(x+35.0,y+201.0,11.2,false,"Networking and HTML are not available yet.",MUTED,w-65.0);
+            ui.round(x+35.0,y+224.0,170.0,27.0,8.0,[215,232,251],255);
+            ui.text(x+49.0,y+241.6,10.5,true,"Offline workspace",[47,110,190],147.0);
+        }else{
+            ui.round(x+15.0,y+89.0,w-30.0,112.0,15.0,[228,241,255],255);
+            ui.circle(x+w-70.0,y+143.0,36.0,[167,207,251],86);
+            ui.circle(x+w-70.0,y+143.0,26.0,[153,198,247],132);
+            ui.glyph_browser(x+w-70.0,y+143.0,1.7);
+            ui.text(x+34.0,y+128.0,20.5,true,"Your space. Your OS.",INK,w-133.0);
+            ui.text(x+35.0,y+155.0,11.2,false,"A lighter way to explore.",[92,115,144],w-149.0);
+            ui.round(x+34.0,y+169.0,139.0,22.0,7.0,[62,126,214],255);
+            ui.text(x+47.0,y+184.5,9.7,true,"Samen local home",[255,255,255],125.0);
+            ui.text(x+21.0,y+224.0,11.0,true,"Quick access",INK,160.0);
+            ui.round(x+20.0,y+237.0,207.0,41.0,10.0,[240,245,252],255);
+            ui.glyph_folder(x+42.0,y+257.0,0.65);
+            ui.text(x+61.0,y+259.4,10.7,true,"Files",INK,142.0);
+            ui.round(x+237.0,y+237.0,215.0,41.0,10.0,[240,245,252],255);
+            ui.glyph_terminal(x+260.0,y+257.0,0.67);
+            ui.text(x+280.0,y+259.4,10.7,true,"Terminal",INK,160.0);
         }
-        for i in 0..self.file_count.min(7) {
-            let y=r.y+94+i as i32*24;
-            if self.selected_file==Some(i) {
-                rounded(fb,Rect{x:r.x+16,y:y-3,w:r.w-32,h:22},5,[210,229,250],245);
+    }
+    fn draw_files(&self,ui:&mut Ui<'_>,r:Rect){
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        ui.round(x+14.0,y+38.0,103.0,30.0,8.0,[58,125,213],255);
+        ui.text(x+27.0,y+58.0,10.8,true,"+ New sample",[255,255,255],90.0);
+        ui.round(x+125.0,y+38.0,85.0,30.0,8.0,[233,241,251],255);
+        ui.text(x+142.0,y+57.5,10.8,true,"Delete",[81,107,144],75.0);
+        ui.round(x+w-129.0,y+40.0,113.0,26.0,13.0,[227,243,232],255);
+        ui.circle(x+w-115.0,y+53.0,3.4,[67,184,114],255);
+        ui.text(x+w-105.0,y+57.0,9.7,true,"SamenFS1",[67,133,92],87.0);
+        ui.rect(x+13.0,y+77.5,w-26.0,0.7,HAIRLINE,190);
+        // Quiet blue sidebar, active root volume, and storage metadata.
+        ui.round(x+13.0,y+88.0,100.0,h-103.0,11.0,[236,244,253],255);
+        ui.text(x+24.0,y+113.0,9.3,true,"LOCATIONS",MUTED,80.0);
+        ui.round(x+19.0,y+124.0,87.0,30.0,7.0,[208,228,252],255);
+        ui.glyph_folder(x+35.0,y+139.0,0.51);
+        ui.text(x+51.0,y+143.0,10.5,true,"Home",BLUE,48.0);
+        ui.text(x+24.0,y+185.0,9.6,false,"Device",MUTED,80.0);
+        ui.text(x+24.0,y+203.0,10.2,true,"Primary ATA",INK,79.0);
+        ui.text(x+24.0,y+223.0,9.2,false,"Local disk",MUTED,81.0);
+        ui.round(x+21.0,y+h-43.0,81.0,4.0,2.0,[213,228,245],255);
+        ui.round(x+21.0,y+h-43.0,52.0,4.0,2.0,[99,165,231],255);
+        ui.text(x+23.0,y+h-23.0,9.0,false,"SamenFS1",MUTED,80.0);
+        // File list with subtle selected highlights and full-resolution text.
+        ui.text(x+127.0,y+89.3,9.3,true,"NAME",MUTED,201.0);
+        ui.text(x+w-84.0,y+89.3,9.3,true,"SIZE",MUTED,65.0);
+        ui.rect(x+126.0,y+93.0,w-140.0,0.5,HAIRLINE,180);
+        if self.file_count==0{
+            ui.glyph_folder(x+280.0,y+164.0,1.3);
+            ui.text(x+184.0,y+199.0,13.8,true,"Nothing here yet",INK,226.0);
+            ui.text(x+168.0,y+223.0,10.5,false,"Create a file to get started.",MUTED,245.0);
+        }
+        let available=((h-146.0)/24.0) as usize;
+        for i in 0..self.file_count.min(available).min(7){
+            let cy=y+106.0+i as f32*24.0;
+            if self.selected_file==Some(i){
+                ui.round(x+123.0,cy-9.0,w-136.0,23.0,6.0,[213,232,253],255);
+            }else if i%2==1{
+                ui.round(x+123.0,cy-9.0,w-136.0,23.0,6.0,[247,250,254],255);
             }
-            text(fb,r.x+26,y+5,self.files[i].name(),TEXT,1);
-            number(fb,r.x+r.w-113,y+5,self.files[i].size,TEXT);
+            ui.glyph_folder(x+139.0,cy+1.0,0.43);
+            ui.text(x+154.0,cy+4.7,10.4,self.selected_file==Some(i),
+                    self.files[i].name(),INK,w-249.0);
+            ui.format_bytes(x+w-81.0,cy+4.7,10.0,self.files[i].size,MUTED);
         }
-        rect(fb,Rect{x:r.x+14,y:r.y+r.h-45,w:r.w-28,h:1},[211,219,230],255);
-        if let Some(i)=self.selected_file {
+        ui.rect(x+125.0,y+h-49.0,w-139.0,0.6,HAIRLINE,180);
+        if let Some(i)=self.selected_file{
             if i<self.file_count{
-                text(fb,r.x+23,r.y+r.h-32,self.files[i].name(),accent,1);
-                let n=self.preview_len.min(42);
-                let chars=core::str::from_utf8(&self.preview[..n]).unwrap_or("[BINARY FILE]");
-                text(fb,r.x+23,r.y+r.h-17,chars,[87,102,124],1);
+                ui.text(x+131.0,y+h-31.0,10.8,true,self.files[i].name(),INK,305.0);
+                let data=core::str::from_utf8(&self.preview[..self.preview_len.min(70)])
+                    .unwrap_or("Binary file preview");
+                ui.text(x+131.0,y+h-14.0,9.7,false,data,MUTED,w-160.0);
             }
-        }else {
-            text(fb,r.x+23,r.y+r.h-27,"SELECT A FILE TO PREVIEW IT.",[99,112,132],1);
+        }else{
+            ui.text(x+131.0,y+h-25.0,10.0,false,"Select a file to preview",MUTED,w-157.0);
         }
     }
-}
-
-fn number(fb:&mut Framebuffer,x:i32,y:i32,n:u32,color:[u8;3]){
-    let mut buf=[0u8;10];let mut pos=buf.len();let mut n=n;
-    loop{pos-=1;buf[pos]=b'0'+(n%10) as u8;n/=10;if n==0{break;}}
-    if let Ok(s)=core::str::from_utf8(&buf[pos..]){text(fb,x,y,s,color,1);}
-}
-fn rect(fb:&mut Framebuffer,r:Rect,c:[u8;3],alpha:u8){
-    if r.w<=0||r.h<=0{return;}
-    for y in r.y.max(0)..(r.y+r.h).min(ART_H) {
-        for x in r.x.max(0)..(r.x+r.w).min(ART_W) {
-            fb.logical_blend(x,y,c,alpha);
-        }
+    fn draw_prompt(&self,ui:&mut Ui<'_>,r:Rect){
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        ui.rect(x+16.0,y+h-42.5,w-32.0,0.6,[77,97,119],180);
+        ui.text(x+21.0,y+h-21.0,11.2,true,"~ %",[111,234,179],34.0);
+        let input=core::str::from_utf8(&self.terminal.input[..self.terminal.input_len]).unwrap_or("");
+        ui.text(x+57.0,y+h-21.0,11.2,false,input,[234,241,250],w-87.0);
+        let cursor_x=x+57.0+ui.measure_text(11.2,false,input).min(w-91.0);
+        ui.caret(cursor_x,y+h-16.0,13.0,[105,237,183]);
     }
-}
-fn rounded(fb:&mut Framebuffer,r:Rect,radius:i32,c:[u8;3],alpha:u8){
-    if r.w<=0||r.h<=0{return;}
-    let radius=radius.min(r.w/2).min(r.h/2);
-    for y in r.y.max(0)..(r.y+r.h).min(ART_H) {
-        for x in r.x.max(0)..(r.x+r.w).min(ART_W) {
-            let dx=if x<r.x+radius {r.x+radius-x}else if x>=r.x+r.w-radius {x-(r.x+r.w-radius-1)}else{0};
-            let dy=if y<r.y+radius {r.y+radius-y}else if y>=r.y+r.h-radius {y-(r.y+r.h-radius-1)}else{0};
-            if dx*dx+dy*dy<=radius*radius{fb.logical_blend(x,y,c,alpha);}
-        }
+    /// Update only the Terminal input strip. No full-window redraw per letter.
+    pub fn repaint_terminal_input(&self,fb:&mut Framebuffer)->bool{
+        if !self.terminal_focused(){return false;}
+        let r=self.windows[2].rect;
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        let mut ui=Ui::new(fb);
+        ui.round(x+15.0,y+h-42.0,w-30.0,33.0,5.0,[23,35,52],255);
+        self.draw_prompt(&mut ui,r);
+        drop(ui);
+        fb.present_logical_region(r.x+13,r.y+r.h-45,r.w-26,40);
+        true
     }
-}
-fn circle(fb:&mut Framebuffer,cx:i32,cy:i32,r:i32,color:[u8;3]){
-    for y in -r..=r {for x in -r..=r {
-        if x*x+y*y<=r*r {fb.logical_blend(cx+x,cy+y,color,255);}
-    }}
-}
-fn text(fb:&mut Framebuffer,x:i32,y:i32,value:&str,color:[u8;3],size:i32){
-    let mut pen=x;
-    for b in value.bytes().take(69) {
-        let glyph=glyph(b.to_ascii_uppercase());
-        for (dy,row) in glyph.iter().enumerate() {
-            for dx in 0..5 {
-                if row & (1<<(4-dx))!=0 {
-                    for yy in 0..size {for xx in 0..size {
-                        fb.logical_blend(pen+dx as i32*size+xx,y+dy as i32*size+yy,color,255);
-                    }}
-                }
-            }
+    fn draw_terminal(&self,ui:&mut Ui<'_>,r:Rect){
+        let (x,y,w,h)=(r.x as f32,r.y as f32,r.w as f32,r.h as f32);
+        ui.round(x+14.0,y+39.0,w-28.0,27.0,8.0,[35,55,75],255);
+        ui.circle(x+28.0,y+52.5,3.3,[94,229,164],255);
+        ui.text(x+40.0,y+57.4,10.8,true,"samen-shell",[205,228,245],166.0);
+        ui.text(x+w-139.0,y+57.4,9.6,false,"local  /  x86_64",[157,177,198],125.0);
+        ui.rect(x+15.0,y+75.0,w-30.0,0.7,[72,93,116],146);
+        ui.set_clip(x+18.0,y+79.0,w-36.0,h-125.0);
+        let available=((h-127.0)/15.6) as usize;
+        let start=self.terminal.count.saturating_sub(available);
+        let mut row=0usize;
+        for line in &self.terminal.lines[start..self.terminal.count] {
+            let color=match line.style{
+                1=>[182,224,254],2=>[113,238,183],3=>[255,136,147],
+                4=>[231,241,255],_=>[176,194,215]
+            };
+            ui.text(x+23.0,y+96.0+row as f32*15.6,10.8,line.style==4,
+                    line.value(),color,w-48.0);
+            row+=1;
         }
-        pen+=6*size;
-    }
-}
-// Compact 5x7 glyphs. Text rendering uses no heap or external font subsystem.
-fn glyph(c:u8)->[u8;7] {
-    match c {
-        b'A'=>[14,17,17,31,17,17,17],b'B'=>[30,17,17,30,17,17,30],
-        b'C'=>[14,17,16,16,16,17,14],b'D'=>[30,17,17,17,17,17,30],
-        b'E'=>[31,16,16,30,16,16,31],b'F'=>[31,16,16,30,16,16,16],
-        b'G'=>[14,17,16,23,17,17,15],b'H'=>[17,17,17,31,17,17,17],
-        b'I'=>[31,4,4,4,4,4,31],b'J'=>[7,2,2,2,18,18,12],
-        b'K'=>[17,18,20,24,20,18,17],b'L'=>[16,16,16,16,16,16,31],
-        b'M'=>[17,27,21,21,17,17,17],b'N'=>[17,25,21,19,17,17,17],
-        b'O'=>[14,17,17,17,17,17,14],b'P'=>[30,17,17,30,16,16,16],
-        b'Q'=>[14,17,17,17,21,18,13],b'R'=>[30,17,17,30,20,18,17],
-        b'S'=>[15,16,16,14,1,1,30],b'T'=>[31,4,4,4,4,4,4],
-        b'U'=>[17,17,17,17,17,17,14],b'V'=>[17,17,17,17,17,10,4],
-        b'W'=>[17,17,17,21,21,21,10],b'X'=>[17,17,10,4,10,17,17],
-        b'Y'=>[17,17,10,4,4,4,4],b'Z'=>[31,1,2,4,8,16,31],
-        b'0'=>[14,17,19,21,25,17,14],b'1'=>[4,12,4,4,4,4,14],
-        b'2'=>[14,17,1,2,4,8,31],b'3'=>[30,1,1,14,1,1,30],
-        b'4'=>[2,6,10,18,31,2,2],b'5'=>[31,16,30,1,1,17,14],
-        b'6'=>[6,8,16,30,17,17,14],b'7'=>[31,1,2,4,8,8,8],
-        b'8'=>[14,17,17,14,17,17,14],b'9'=>[14,17,17,15,1,2,12],
-        b'.'=>[0,0,0,0,0,12,12],b':'=>[0,12,12,0,12,12,0],
-        b'/'=>[1,1,2,4,8,16,16],b'-'=>[0,0,0,31,0,0,0],
-        b'_'=>[0,0,0,0,0,0,31],b'('=>[2,4,8,8,8,4,2],
-        b')'=>[8,4,2,2,2,4,8],b'!'=>[4,4,4,4,4,0,4],
-        b'?'=>[14,17,1,2,4,0,4],b'='=>[0,31,0,31,0,0,0],
-        b' '=>[0;7],_=>[0,0,0,0,0,0,0],
+        ui.clear_clip();
+        self.draw_prompt(ui,r);
     }
 }

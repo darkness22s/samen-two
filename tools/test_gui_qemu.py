@@ -165,7 +165,7 @@ def verify(iso: Path) -> None:
                 guest.command("ls","Welcome.txt")
                 guest.command("cat Welcome.txt","Welcome to Samen OS")
                 print("PASS: Files window creates persistent SamenFS1 file")
-                click_logical(154,184) # Select first file row
+                click_logical(270,184) # Select first file row in HD two-column Explorer
                 guest.command("gui windows","GUI: Files open=true")
 
                 # Grab titlebar while holding PS/2 left mouse button and drag.
@@ -196,12 +196,32 @@ def verify(iso: Path) -> None:
                 click_logical(356,445)
                 guest.command("gui windows","GUI: Files open=true")
 
-                # Settings toggles alter actual in-kernel state.
+                # Terminal replaces Settings and must accept genuine PS/2
+                # keyboard input from QEMU's emulated keyboard device.
                 click_logical(408,445)
-                guest.command("gui settings status","GUI: settings glass=true")
-                click_logical(552,195)
-                guest.command("gui settings status","GUI: settings glass=false")
-                print("PASS: Settings glass toggle accepts mouse clicks")
+                guest.command("gui windows", "GUI: Terminal open=true minimized=false")
+                guest.command("gui terminal status","GUI: terminal focused=true")
+                cmd(monitor,"sendkey h")
+                guest.command("gui terminal status","input=h")
+                for char in "elp":
+                    cmd(monitor,f"sendkey {char}")
+                start=len(guest.log)
+                cmd(monitor,"sendkey ret")
+                guest.wait_for("GUI-TERM: help  ls  cat NAME",start=start,timeout=12)
+                guest.command("gui terminal status","input=")
+                print("PASS: PS/2 keyboard types help and Enter executes real terminal command")
+
+                # Create a file THROUGH the graphical terminal's keyboard,
+                # then verify the persistent SamenFS1 storage from serial.
+                # Use short scancodes to avoid QEMU monitor key-name aliases.
+                for char in "write keyboard works":
+                    cmd(monitor,"sendkey spc" if char==" " else f"sendkey {char}")
+                guest.command("gui terminal status","input=write keyboard works")
+                start=len(guest.log)
+                cmd(monitor,"sendkey ret")
+                guest.wait_for("GUI-TERM: Saved keyboard (5 bytes).",start=start,timeout=12)
+                guest.command("cat keyboard","works")
+                print("PASS: Terminal keyboard commands persist to SamenFS1")
 
                 # Browser contains honest local Home and Help screens.
                 click_logical(307,445)
