@@ -202,7 +202,7 @@ def verify(iso: Path) -> None:
                 guest.command("gui windows","GUI: Terminal open=true")
                 guest.command("gui terminal status","GUI: terminal executions=0")
                 for key in ["h","e","l","p","ret"]:
-                    cmd(monitor,"sendkey "+key)
+                    cmd(monitor,"sendkey "+key+" 20")
                 # The keyboard scancodes must reach the guest terminal via
                 # i8042, not a fake serial-driven command.
                 end=time.monotonic()+8
@@ -217,7 +217,7 @@ def verify(iso: Path) -> None:
                 # QEMU sendkey delivers make/break codes through the i8042 path.
                 for key in ["w","r","i","t","e","spc","k","e","y","s","dot","t","x","t",
                             "spc","f","r","o","m","spc","k","e","y","b","o","a","r","d","ret"]:
-                    cmd(monitor,"sendkey "+key.lower())
+                    cmd(monitor,"sendkey "+key.lower()+" 20")
                 end=time.monotonic()+8
                 while time.monotonic()<end:
                     start=len(guest.log)
@@ -225,7 +225,7 @@ def verify(iso: Path) -> None:
                     report=guest.log[start:].decode("utf8",errors="replace")
                     if "last='write keys.txt from keyb'" in report: break
                 else:
-                    raise AssertionError("Keyboard did not submit the terminal write command")
+                    raise AssertionError("Keyboard did not submit the terminal write command; last report: "+report)
                 guest.command("cat keys.txt","from keyboard")
                 guest.command("gui terminal command write Shell.txt On disk","GUI: terminal executed")
                 guest.command("cat Shell.txt","On disk")
