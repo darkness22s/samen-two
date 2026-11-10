@@ -6,12 +6,12 @@
 
 - Freestanding Rust kernel, `#![no_std]`, x86-64 ELF and Limine boot protocol
 - **Native high-resolution desktop:** the original 2048×1152 desert wallpaper is JPEG-decoded once and aspect-correctly scaled to the actual framebuffer; the original SAMEN wordmark is a separate antialiased alpha layer. The old 692×498 flattened screenshot is no longer used at runtime.
-- **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Settings icons, selection feedback and application windows are rendered by Rust code as independent layers. The dock uses a dedicated **native-framebuffer vector renderer with 4×4 subpixel antialiasing**, rather than scaling its geometry up from the logical 692×498 grid. Colors are blended against the real desktop scene at full hardware resolution.
+- **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Terminal icons, selection feedback and application windows are rendered by Rust code as independent layers. The dock uses a dedicated **native-framebuffer vector renderer with 4×4 subpixel antialiasing**, rather than scaling its geometry up from the logical 692×498 grid. Colors are blended against the real desktop scene at full hardware resolution.
 - **Flicker-resistant compositor:** the scene and wallpaper live in normal RAM; complete scene updates are presented only after composition, while ordinary PS/2 mouse movement restores a small cursor rectangle instead of repainting the screen.
 - **High-resolution output:** Limine requests 1920×1080×32 where the display/video firmware supports it, with correct aspect ratio and framebuffer-mode fallback.
-- **Interactive windows:** click dock icons to open Files, Settings or Browser; drag title bars; use close, minimize, maximize and restore controls
+- **Interactive windows:** click dock icons to open Files, Terminal or Browser; drag title bars; use close, minimize, maximize and restore controls
 - **Files:** lists files directly from the mounted SamenFS1 disk; mouse-select to preview, create a real `Welcome.txt`, delete selected files
-- **Settings:** live glass/translucency, pointer-speed, and blue/purple accent toggles
+- **Terminal:** actual PS/2 keyboard-driven terminal with a persistent SamenFS1 shell. Commands include `help`, `ls`, `cat`, `write`, `rm`, `stat`, `disk`, `pwd`, `echo`, `clear`, `about`, and confirmed `format YES`.
 - **Browser:** interactive local Home/Help screens. HTTP, HTML rendering and networking are **not implemented**, so this is not a web browser yet
 - Polled COM1 serial recovery shell still works while the GUI is on screen
 - Primary-master ATA PIO disk driver with error/time-out handling
@@ -28,7 +28,7 @@ make iso
 make run
 ```
 
-`make run` creates `build/samen-data.img` once (16 MiB) and **never overwrites it** unless explicitly requested. Samen opens its graphical desktop in the QEMU VGA window **and** prints a recovery serial prompt in the terminal. Move the mouse and click the Chrome, Files or Settings icons in the translucent dock; the three kernel-rendered windows will open, with working controls. You can also use `gui status`, `gui windows`, `gui browser`, `gui files`, `gui settings`, `gui settings status`, `gui browser status`, and `gui redraw` in the terminal. Try:
+`make run` creates `build/samen-data.img` once (16 MiB) and **never overwrites it** unless explicitly requested. Samen opens its graphical desktop in the QEMU VGA window **and** prints a recovery serial prompt in the terminal. Move the mouse and click the Chrome, Files or Settings icons in the translucent dock; the three kernel-rendered windows will open, with working controls. You can also use `gui status`, `gui windows`, `gui browser`, `gui files`, `gui terminal`, `gui settings status`, `gui browser status`, and `gui redraw` in the terminal. Try:
 
 ```text
 help
@@ -60,3 +60,9 @@ This is an early single-core kernel with a real graphical desktop, **not** yet a
 ## Renderer diagnostics
 
 In the serial recovery shell, run `gui render stats` to inspect the number of full scene redraws and cursor-only updates. Moving the mouse without holding a window title bar must increase only the cursor counter. Run `make test-gui` to verify the physical PS/2 mouse path, native dock pixels, filesystem window interactions, and cursor redraw behavior under QEMU.
+
+## Graphical Terminal
+
+Click the third (Terminal) icon in the glass dock and type on the QEMU virtual machine's PS/2 keyboard. It uses translated set-1 keyboard scancodes; basic US ASCII layout, Enter, Shift, CapsLock and Backspace are supported. Commands operate on the same real SamenFS1 disk used by Files and the serial recovery shell. **The Terminal is not a POSIX userspace or a Linux shell**: it is a kernel-native command window. Browser Home/Guide remains local-only; internet pages still require networking and an HTML engine.
+
+GUI type is rasterized from a glyph atlas derived from Inter Display under the SIL Open Font License; no original font software is distributed. The embedded atlas supports regular and semibold native-resolution text. The initial GUI requests 1920×1080 where the firmware provides it.
