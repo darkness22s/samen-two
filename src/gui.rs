@@ -6,14 +6,8 @@
 use alloc::{vec, vec::Vec};
 use core::ptr::{copy_nonoverlapping, read_volatile, write_volatile};
 use crate::{kprintln, ps2::Mouse, windows::{Manager, Action}};
-use zune_jpeg::JpegDecoder;
-use zune_jpeg::zune_core::{
-    bytestream::ZCursor,
-    colorspace::ColorSpace,
-    options::DecoderOptions,
-};
 
-const WALLPAPER: &[u8] = include_bytes!("../assets/source-wallpaper.jpg");
+const WALLPAPER: &[u8] = include_bytes!("../assets/samen-wallpaper-2048.qoi");
 const LOGO_MASK: &[u8] = include_bytes!("../assets/logo-alpha-240x95.bin");
 const WALL_W: usize=2048;
 const WALL_H: usize=1152;
@@ -150,6 +144,32 @@ impl Framebuffer {
         self.desktop_cache.copy_from_slice(&self.scene);
         self.cache_ready=true;
     }
+    pub(crate) fn native_span(&mut self,y:i32,x0:i32,x1:i32,c:[u8;3],alpha:u8){
+        if alpha==0||y<0||y>=self.height as i32{return;}
+        let l=x0.max(0) as usize;
+        let e=x1.min(self.width as i32).max(0) as usize;
+        if l>=e{return;}
+        let start=y as usize*self.width+l;
+        if alpha==255{
+            let color=self.pack(c);
+            self.scene[start..start+e-l].fill(color);
+            return;
+        }
+        let red=self.red_shift;let green=self.green_shift;let blue=self.blue_shift;
+        let a=u32::from(alpha);
+        let sr=u32::from(c[0])*a;
+        let sg=u32::from(c[1])*a;
+        let sb=u32::from(c[2])*a;
+        let inverse=255-a;
+        for pixel in &mut self.scene[start..start+e-l]{
+            let old=*pixel;
+            let nr=(sr+((old>>red)&255)*inverse+127)/255;
+            let ng=(sg+((old>>green)&255)*inverse+127)/255;
+            let nb=(sb+((old>>blue)&255)*inverse+127)/255;
+            *pixel=(nr<<red)|(ng<<green)|(nb<<blue);
+        }
+    }
+
     pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
         let idx=y as usize*self.width+x as usize;
@@ -238,10 +258,10 @@ impl Framebuffer {
 }
 
 #[derive(Clone,Copy,PartialEq,Eq,Debug)]
-pub enum App {Browser,Files,Settings}
+pub enum App {Browser,Files,Terminal}
 impl App {
     pub fn label(self)->&'static str {
-        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Settings=>"Settings"}
+        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Terminal=>"Terminal"}
     }
 }
 pub struct Desktop {
@@ -254,15 +274,18 @@ pub struct Desktop {
 }
 impl Desktop {
     pub fn initialize(fb:&mut Framebuffer)->Option<Self>{
-        // A single JPEG decode at boot instead of scaling and recomposing a
+        kprintln!("GUI init: decode wallpaper");
+        // A single lossless QOI decode at boot instead of scaling and recomposing a
         // tiny, baked-in desktop image on every mouse movement.
-        let opts=DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
-        let mut decoder=JpegDecoder::new_with_options(ZCursor::new(WALLPAPER),opts);
-        let pixels=decoder.decode().ok()?;
+        let mut pixels=vec![0u8;WALL_W*WALL_H*3];
+        if !samen_kernel::qoi::decode_rgb(WALLPAPER,&mut pixels){return None;}
         if !fb.install_wallpaper(&pixels){return None;}
+        kprintln!("GUI init: wallpaper installed");
         let mut desktop=Self{x:(fb.width/2) as i32,y:(fb.height/2) as i32,
             selected:None,windows:Manager::new(),scene_redraws:0,cursor_updates:0};
+        kprintln!("GUI init: manager initialized, composing desktop");
         desktop.paint_all(fb);
+        kprintln!("GUI init: composition complete");
         Some(desktop)
     }
     fn paint_logo(&self,fb:&mut Framebuffer){
@@ -308,12 +331,12 @@ impl Desktop {
         fb.draw_cursor(self.x,self.y);
     }
     fn icon_box(&self,app:App)->(i32,i32,i32,i32){
-        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Settings=>(382,432)};
+        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Terminal=>(382,432)};
         (a,422,b,471)
     }
     pub fn hit_test(&self,fb:&Framebuffer,x:usize,y:usize)->Option<App>{
         let (lx,ly)=fb.from_screen(x as i32,y as i32);
-        for app in [App::Browser,App::Files,App::Settings]{
+        for app in [App::Browser,App::Files,App::Terminal]{
             let (x0,y0,x1,y1)=self.icon_box(app);
             if lx>=x0 && ly>=y0 && lx<x1 && ly<y1{return Some(app);}
         }

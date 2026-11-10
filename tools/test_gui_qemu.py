@@ -196,12 +196,41 @@ def verify(iso: Path) -> None:
                 click_logical(356,445)
                 guest.command("gui windows","GUI: Files open=true")
 
-                # Settings toggles alter actual in-kernel state.
+                # The old Settings app is now an actual keyboard-driven
+                # kernel Terminal, with real SamenFS1 operations.
                 click_logical(408,445)
-                guest.command("gui settings status","GUI: settings glass=true")
-                click_logical(552,195)
-                guest.command("gui settings status","GUI: settings glass=false")
-                print("PASS: Settings glass toggle accepts mouse clicks")
+                guest.command("gui windows","GUI: Terminal open=true")
+                guest.command("gui terminal status","GUI: terminal executions=0")
+                for key in ["h","e","l","p","ret"]:
+                    cmd(monitor,"sendkey "+key)
+                # The keyboard scancodes must reach the guest terminal via
+                # i8042, not a fake serial-driven command.
+                end=time.monotonic()+8
+                while time.monotonic()<end:
+                    start=len(guest.log)
+                    guest.command("gui terminal status","GUI: terminal executions=")
+                    report=guest.log[start:].decode("utf8",errors="replace")
+                    if "last='help'" in report: break
+                else:
+                    raise AssertionError("PS/2 keyboard did not execute Terminal help")
+                # Exercise real PS/2 typing for a mutation as well as 'help'.
+                # QEMU sendkey delivers make/break codes through the i8042 path.
+                for key in ["w","r","i","t","e","spc","k","e","y","s","dot","t","x","t",
+                            "spc","f","r","o","m","spc","k","e","y","b","o","a","r","d","ret"]:
+                    cmd(monitor,"sendkey "+key.lower())
+                end=time.monotonic()+8
+                while time.monotonic()<end:
+                    start=len(guest.log)
+                    guest.command("gui terminal status","GUI: terminal executions=")
+                    report=guest.log[start:].decode("utf8",errors="replace")
+                    if "last='write keys.txt from keyb'" in report: break
+                else:
+                    raise AssertionError("Keyboard did not submit the terminal write command")
+                guest.command("cat keys.txt","from keyboard")
+                guest.command("gui terminal command write Shell.txt On disk","GUI: terminal executed")
+                guest.command("cat Shell.txt","On disk")
+                guest.command("gui terminal command ls","GUI: terminal executed")
+                print("PASS: Terminal receives PS/2 keyboard and writes to real SamenFS1")
 
                 # Browser contains honest local Home and Help screens.
                 click_logical(307,445)
@@ -213,6 +242,18 @@ def verify(iso: Path) -> None:
             guest.exit()
         finally:
             guest.close()
+
+        # The GUI terminal must persist the data across a full QEMU shutdown
+        # and fresh boot, not merely share the in-memory filesystem cache.
+        guest=Guest(iso,disk)
+        try:
+            guest.command("cat keys.txt","from keyboard")
+            guest.command("cat Shell.txt","On disk")
+            guest.command("ls","keys.txt")
+            guest.exit()
+        finally:
+            guest.close()
+        print("PASS: GUI Terminal-created SamenFS1 files survive a cold boot")
 
 
 if __name__=="__main__":

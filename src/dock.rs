@@ -116,33 +116,20 @@ fn files(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
     round(fb,cx-14.0*s,cy+12.9*s,28.1*s,1.5*s,0.7*s,[36,134,212],95);
 }
 
-fn cog(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
-    // Native vector gear: an outer tile, eight rectangular teeth, a clean
-    // circular ring and a central bore with its own specular glint.
-    round(fb,cx-18.0*s,cy-18.0*s,36.0*s,36.0*s,8.2*s,[38,52,73],255);
-    round(fb,cx-16.5*s,cy-16.5*s,33.0*s,33.0*s,7.4*s,[73,91,115],255);
-    round(fb,cx-14.0*s,cy-14.3*s,28.0*s,5.0*s,2.5*s,[162,180,202],53);
-    // Eight directions defined by unit vectors: fast enough for MSAA and
-    // doesn't depend on trigonometric functions in the freestanding kernel.
-    const DIRS:[(f32,f32);8]=[
-        (1.0,0.0),(0.70710677,0.70710677),(0.0,1.0),
-        (-0.70710677,0.70710677),(-1.0,0.0),
-        (-0.70710677,-0.70710677),(0.0,-1.0),
-        (0.70710677,-0.70710677),
-    ];
-    let outer=13.4*s;
-    raster(fb,Area::around(cx,cy,outer),[242,246,253],255,|x,y|{
-        let dx=x-cx;let dy=y-cy;let d2=dx*dx+dy*dy;
-        if d2<=11.1*s*11.1*s && d2>=7.8*s*7.8*s{return true;}
-        if d2>outer*outer{return false;}
-        DIRS.iter().any(|&(ux,uy)|{
-            let along=dx*ux+dy*uy;
-            let across=dx*(-uy)+dy*ux;
-            along>=9.0*s && along<=13.4*s && across>=-2.1*s && across<=2.1*s
-        })
+fn terminal_icon(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
+    // Native antialiased command prompt, a dark terminal tile, and a green
+    // cursor. This replaces the old Settings gear entirely.
+    round(fb,cx-18.0*s,cy-18.0*s,36.0*s,36.0*s,8.0*s,[20,31,52],255);
+    round(fb,cx-15.8*s,cy-15.8*s,31.6*s,31.6*s,6.8*s,[36,52,75],255);
+    round(fb,cx-12.0*s,cy-11.8*s,24.0*s,2.0*s,1.0*s,[91,116,150],141);
+    // Chevron prompt (>) and horizontal terminal cursor.
+    raster(fb,Area::around(cx-4.0*s,cy,10.0*s),[165,239,207],255,|x,y|{
+        let dx=(x-(cx-7.0*s))/s;
+        let dy=(y-cy)/s;
+        (dy-dx).abs()<1.35 && dx>=0.0 && dx<5.8
+        || (dy+dx).abs()<1.35 && dx>=0.0 && dx<5.8
     });
-    disc(fb,cx,cy,5.1*s,[69,89,117],255);
-    disc(fb,cx-1.3*s,cy-1.4*s,1.15*s,[140,168,195],121);
+    round(fb,cx+1.1*s,cy+5.1*s,9.0*s,2.7*s,1.1*s,[145,226,189],255);
 }
 
 pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
@@ -168,7 +155,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
     for (app,logical_x) in [
         (App::Browser,309),
         (App::Files,357),
-        (App::Settings,406),
+        (App::Terminal,406),
     ] {
         let (ix,iy)=fb.to_screen(logical_x,445);
         let cx=ix as f32;
@@ -184,7 +171,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
         match app {
             App::Browser=>chrome(fb,cx,cy,s),
             App::Files=>files(fb,cx,cy,s),
-            App::Settings=>cog(fb,cx,cy,s),
+            App::Terminal=>terminal_icon(fb,cx,cy,s),
         }
     }
 }
@@ -193,7 +180,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
 /// of rebuilding every icon, blur/shadow and glass layer on every app switch.
 pub fn draw_selection(fb:&mut Framebuffer,app:App) {
     let s=fb.desktop_scale();
-    let logical_x=match app{App::Browser=>309,App::Files=>357,App::Settings=>406};
+    let logical_x=match app{App::Browser=>309,App::Files=>357,App::Terminal=>406};
     let (x,y)=fb.to_screen(logical_x,445);
     let (cx,cy)=(x as f32,y as f32);
     clip_arc(fb,cx,cy,21.7*s,20.5*s,[248,252,255],228);

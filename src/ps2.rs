@@ -9,6 +9,8 @@ pub struct Mouse {
     pub buttons: u8,
 }
 
+pub enum Event { Motion(Motion), Scan(u8) }
+
 pub struct Motion {
     pub dx: i32,
     pub dy: i32,
@@ -62,11 +64,11 @@ impl Mouse {
         Some(Self::default())
     }
 
-    pub fn poll(&mut self) -> Option<Motion> {
+    pub fn poll(&mut self) -> Option<Event> {
         let status = unsafe { inb(0x64) };
         if status & 1 == 0 { return None; }
         let byte = unsafe { inb(0x60) };
-        if status & 0x20 == 0 { return None; } // keyboard packet
+        if status & 0x20 == 0 { return Some(Event::Scan(byte)); } // keyboard packet
         if self.offset == 0 && byte & 0x08 == 0 { return None; }
         self.packet[self.offset] = byte;
         self.offset += 1;
@@ -77,11 +79,11 @@ impl Mouse {
         let left = flags & 1 != 0;
         let pressed = left && self.buttons & 1 == 0;
         self.buttons = flags & 7;
-        Some(Motion {
+        Some(Event::Motion(Motion {
             dx: (x as i8) as i32,
             dy: -((y as i8) as i32),
             left_pressed: pressed,
             left_down: left,
-        })
+        }))
     }
 }
