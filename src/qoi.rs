@@ -77,3 +77,16 @@ mod tests {
         assert_eq!(&rgb[0..3], &[0,53,143]); // source top-left pixel
     }
 }
+
+#[cfg(test)]
+mod wallpaper_tests {
+    use super::decode_rgb;
+    #[test]
+    fn high_resolution_wallpaper_round_trip() {
+        const IMAGE:&[u8]=include_bytes!("../assets/wallpaper-full-hd.qoi");
+        let mut pixels=std::vec![0u8;2048*1152*3];
+        assert!(decode_rgb(IMAGE,&mut pixels));
+        assert_ne!(&pixels[0..3], &[0,0,0]);
+        assert_ne!(&pixels[(1151*2048+2047)*3..], &[0,0,0]);
+    }
+}

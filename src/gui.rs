@@ -6,14 +6,9 @@
 use alloc::{vec, vec::Vec};
 use core::ptr::{copy_nonoverlapping, read_volatile, write_volatile};
 use crate::{kprintln, ps2::Mouse, windows::{Manager, Action}};
-use zune_jpeg::JpegDecoder;
-use zune_jpeg::zune_core::{
-    bytestream::ZCursor,
-    colorspace::ColorSpace,
-    options::DecoderOptions,
-};
+use samen_kernel::qoi::decode_rgb;
 
-const WALLPAPER: &[u8] = include_bytes!("../assets/source-wallpaper.jpg");
+const WALLPAPER: &[u8] = include_bytes!("../assets/wallpaper-full-hd.qoi");
 const LOGO_MASK: &[u8] = include_bytes!("../assets/logo-alpha-240x95.bin");
 const WALL_W: usize=2048;
 const WALL_H: usize=1152;
@@ -255,11 +250,11 @@ pub struct Desktop {
 impl Desktop {
     pub fn initialize(fb:&mut Framebuffer)->Option<Self>{
         kprintln!("GUI: decoding high resolution wallpaper");
-        // A single JPEG decode at boot instead of scaling and recomposing a
-        // tiny, baked-in desktop image on every mouse movement.
-        let opts=DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
-        let mut decoder=JpegDecoder::new_with_options(ZCursor::new(WALLPAPER),opts);
-        let pixels=decoder.decode().ok()?;
+        // The wallpaper is a lossless RGB QOI encoding of the original
+        // 2048x1152 image. Decode with our bounded, allocator-independent
+        // algorithm instead of the general JPEG decoder's boot-time heap path.
+        let mut pixels=vec![0u8;WALL_W*WALL_H*3];
+        if !decode_rgb(WALLPAPER,&mut pixels){return None;}
         kprintln!("GUI: wallpaper decoded");
         if !fb.install_wallpaper(&pixels){return None;}
         kprintln!("GUI: wallpaper framebuffer ready");
