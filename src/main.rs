@@ -86,6 +86,7 @@ fn graphics_shell(
         if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
             let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down);
             apply_gui_action(action,fb,desktop,disk,fs);
+            if event.left_pressed { desktop.refresh_files(fb,fs.as_ref()); }
         }
         let Some(byte) = arch::try_read() else {
             core::hint::spin_loop();
@@ -106,8 +107,10 @@ fn graphics_shell(
                                 }
                             },
                             "gui browser" | "gui chrome" => desktop.choose(fb, gui::App::Browser),
-                            "gui files" => desktop.choose(fb, gui::App::Files),
+                            "gui browser status" => kprintln!("GUI: browser help={}",desktop.windows.browser_help),
+                            "gui files" => {desktop.windows.sync_files(fs.as_ref());desktop.choose(fb, gui::App::Files);},
                             "gui settings" => desktop.choose(fb, gui::App::Settings),
+                            "gui settings status" => kprintln!("GUI: settings glass={} fast_pointer={} purple_accent={}", desktop.windows.glass,desktop.windows.fast_pointer,desktop.windows.purple_accent),
                             _ => {dispatch(command,disk,fs); desktop.refresh_files(fb,fs.as_ref());},
                         }
                     }
@@ -250,6 +253,7 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
         "help" => {
             kprintln!("about             Kernel and filesystem details");
             kprintln!("gui [status|windows|redraw|browser|files|settings]  Graphical desktop");
+            kprintln!("gui settings status / gui browser status  Inspect window controls");
             kprintln!("help              Display this help");
             kprintln!("disk              Show disk status");
             kprintln!("ls                List files");
