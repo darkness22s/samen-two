@@ -71,6 +71,8 @@ pub struct Framebuffer {
     blue_shift: u8,
     // Both buffers are normal RAM; the hardware framebuffer is write-only here.
     wallpaper: Vec<u32>,
+    desktop_cache: Vec<u32>,
+    cached_variant: Option<Option<App>>,
     scene: Vec<u32>,
 }
 pub unsafe fn acquire() -> Option<Framebuffer> {
@@ -88,7 +90,7 @@ pub unsafe fn acquire() -> Option<Framebuffer> {
     Some(Framebuffer{
         address:fb.address,width:w,height:h,pitch:p,
         red_shift:fb.red_shift,green_shift:fb.green_shift,blue_shift:fb.blue_shift,
-        wallpaper:vec![0;len],scene:vec![0;len],
+        wallpaper:vec![0;len],desktop_cache:vec![0;len],cached_variant:None,scene:vec![0;len],
     })
 }
 impl Framebuffer {
@@ -142,7 +144,14 @@ impl Framebuffer {
         }
         true
     }
-    pub fn begin_scene(&mut self){self.scene.copy_from_slice(&self.wallpaper);}
+    pub fn begin_scene(&mut self){self.scene.copy_from_slice(&self.desktop_cache);}
+    fn needs_cache(&self, selected:Option<App>)->bool{
+        self.cached_variant!=Some(selected)
+    }
+    fn update_cache(&mut self,selected:Option<App>){
+        self.desktop_cache.copy_from_slice(&self.scene);
+        self.cached_variant=Some(selected);
+    }
     pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
         let idx=y as usize*self.width+x as usize;
@@ -286,10 +295,16 @@ impl Desktop {
     }
     pub fn paint_all(&mut self,fb:&mut Framebuffer){
         self.scene_redraws+=1;
+        // Expensive HD MSAA graphics are rasterized only when the dock's
+        // selected state changes, never for window motion or file operations.
+        if fb.needs_cache(self.selected){
+            fb.scene.copy_from_slice(&fb.wallpaper);
+            self.paint_logo(fb);
+            self.paint_dock(fb);
+            fb.update_cache(self.selected);
+        }
         fb.begin_scene();
-        self.paint_logo(fb);
         self.windows.draw(fb);
-        self.paint_dock(fb);
         fb.present();
         fb.draw_cursor(self.x,self.y);
     }
