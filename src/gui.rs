@@ -72,7 +72,7 @@ pub struct Framebuffer {
     // Both buffers are normal RAM; the hardware framebuffer is write-only here.
     wallpaper: Vec<u32>,
     desktop_cache: Vec<u32>,
-    cached_variant: Option<Option<App>>,
+    cache_ready: bool,
     scene: Vec<u32>,
 }
 pub unsafe fn acquire() -> Option<Framebuffer> {
@@ -90,7 +90,7 @@ pub unsafe fn acquire() -> Option<Framebuffer> {
     Some(Framebuffer{
         address:fb.address,width:w,height:h,pitch:p,
         red_shift:fb.red_shift,green_shift:fb.green_shift,blue_shift:fb.blue_shift,
-        wallpaper:vec![0;len],desktop_cache:vec![0;len],cached_variant:None,scene:vec![0;len],
+        wallpaper:vec![0;len],desktop_cache:vec![0;len],cache_ready:false,scene:vec![0;len],
     })
 }
 impl Framebuffer {
@@ -145,12 +145,10 @@ impl Framebuffer {
         true
     }
     pub fn begin_scene(&mut self){self.scene.copy_from_slice(&self.desktop_cache);}
-    fn needs_cache(&self, selected:Option<App>)->bool{
-        self.cached_variant!=Some(selected)
-    }
-    fn update_cache(&mut self,selected:Option<App>){
+    fn needs_cache(&self)->bool{ !self.cache_ready }
+    fn update_cache(&mut self){
         self.desktop_cache.copy_from_slice(&self.scene);
-        self.cached_variant=Some(selected);
+        self.cache_ready=true;
     }
     pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
@@ -295,21 +293,19 @@ impl Desktop {
     }
     pub fn paint_all(&mut self,fb:&mut Framebuffer){
         self.scene_redraws+=1;
-        // Expensive HD MSAA graphics are rasterized only when the dock's
-        // selected state changes, never for window motion or file operations.
-        if fb.needs_cache(self.selected){
+        // The expensive native 4x4 dock is rasterized ONCE per boot.
+        // Selecting other apps only paints a small antialiased accent ring.
+        if fb.needs_cache(){
             fb.scene.copy_from_slice(&fb.wallpaper);
             self.paint_logo(fb);
-            self.paint_dock(fb);
-            fb.update_cache(self.selected);
+            crate::dock::draw(fb,None);
+            fb.update_cache();
         }
         fb.begin_scene();
+        if let Some(app)=self.selected{crate::dock::draw_selection(fb,app);}
         self.windows.draw(fb);
         fb.present();
         fb.draw_cursor(self.x,self.y);
-    }
-    fn paint_dock(&self,fb:&mut Framebuffer){
-        crate::dock::draw(fb,self.selected);
     }
     fn icon_box(&self,app:App)->(i32,i32,i32,i32){
         let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Settings=>(382,432)};

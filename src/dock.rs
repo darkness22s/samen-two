@@ -33,6 +33,15 @@ where F:Fn(f32,f32)->bool {
         let py=y as f32;
         for x in min_x..max_x{
             let px=x as f32;
+            // Broad opaque interiors dominate the glass and icon coverage.
+            // Skip the 16 sample loop when the entire physical pixel is inside.
+            if contains(px+0.01,py+0.01)
+                && contains(px+0.99,py+0.01)
+                && contains(px+0.01,py+0.99)
+                && contains(px+0.99,py+0.99) {
+                fb.blend_native(x,y,color,opacity);
+                continue;
+            }
             let mut covered=0u32;
             for fy in SAMPLES{
                 for fx in SAMPLES{
@@ -178,4 +187,16 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
             App::Settings=>cog(fb,cx,cy,s),
         }
     }
+}
+
+/// Lightweight selected-app indicator. Drawn over the cached HD dock instead
+/// of rebuilding every icon, blur/shadow and glass layer on every app switch.
+pub fn draw_selection(fb:&mut Framebuffer,app:App) {
+    let s=fb.desktop_scale();
+    let logical_x=match app{App::Browser=>309,App::Files=>357,App::Settings=>406};
+    let (x,y)=fb.to_screen(logical_x,445);
+    let (cx,cy)=(x as f32,y as f32);
+    clip_arc(fb,cx,cy,21.7*s,20.5*s,[248,252,255],228);
+    clip_arc(fb,cx,cy,22.3*s,21.7*s,[148,196,253],174);
+    disc(fb,cx,cy+24.0*s,1.8*s,[249,252,255],228);
 }
