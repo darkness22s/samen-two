@@ -180,6 +180,7 @@ impl Manager {
         Action::None
     }
     pub fn release(&mut self){self.dragging=None;}
+    pub fn is_dragging(&self)->bool{self.dragging.is_some()}
     pub fn draw(&self,fb:&mut Framebuffer){
         let mut painted=[false;3];
         for _ in 0..3 {

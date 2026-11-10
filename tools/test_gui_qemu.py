@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Headless QEMU test: rendered Figma desktop, real i8042 motion and dock clicks."""
+"""Headless QEMU regression: high-res wallpaper, native dock, cursor-only updates and windows."""
 from __future__ import annotations
 
 import argparse
@@ -56,6 +56,21 @@ def status_pointer(guest: Guest) -> tuple[int,int]:
     return int(m.group(1)),int(m.group(2))
 
 
+def logical_xy(w: int,h: int,x: int,y: int) -> tuple[int,int]:
+    scale=min(w/692,h/498)
+    x0=int((w-692*scale)*0.5)
+    y0=int((h-498*scale)*0.5)
+    return (int(x0+x*scale),int(y0+y*scale))
+
+
+def render_stats(guest: Guest) -> tuple[int,int]:
+    start=len(guest.log)
+    guest.command('gui render stats','GUI: redraws=')
+    m=re.search(r'GUI: redraws=(\d+) cursor_updates=(\d+)',guest.log[start:].decode('utf8',errors='replace'))
+    if not m:raise AssertionError('Missing renderer metrics')
+    return tuple(map(int,m.groups()))
+
+
 def move_to(guest: Guest, monitor: socket.socket, target_x: int, target_y: int) -> None:
     # Small steps avoid legacy PS/2 8-bit delta overflow and track real guest motion.
     for _ in range(24):
@@ -89,11 +104,26 @@ def verify(iso: Path) -> None:
                 w,h,rgb=ppm_rgb(dump)
                 if len(rgb)!=w*h*3 or w<640 or h<480:
                     raise AssertionError(f"Invalid framebuffer screenshot {(w,h)}")
-                # Pixel (0,0) is pure source Figma art, not the cursor.
-                if rgb[:3] != bytes([0,53,143]):
-                    raise AssertionError(f"Framebuffer pixel != exact source: {rgb[:3]!r}")
-                print(f"PASS: QEMU rendered exact Figma top-left pixel at {w}x{h}")
-                move_to(guest,monitor,round(w*356/692),round(h*445/498))
+                if "native 2048x1152 wallpaper, double buffered, separate real dock" not in boot:
+                    raise AssertionError("New native renderer not initialized")
+                if w<1600 or h<900:
+                    raise AssertionError(f"Requested high-resolution VGA mode unavailable: {(w,h)}")
+                if not (rgb[0]<30 and 25<rgb[1]<90 and 95<rgb[2]<200):
+                    raise AssertionError(f"Unexpected high-resolution wallpaper pixel: {rgb[:3]!r}")
+                def pixel(x,y):
+                    sx,sy=logical_xy(w,h,x,y)
+                    i=(sy*w+sx)*3
+                    return rgb[i:i+3]
+                if pixel(309,445) != bytes([46,140,231]):
+                    raise AssertionError(f"Dock icon is not procedurally rendered Chrome: {pixel(309,445)!r}")
+                print(f"PASS: high-resolution {(w,h)} wallpaper with independent native dock")
+                initial=render_stats(guest)
+                move_to(guest,monitor,*logical_xy(w,h,309,445))
+                after=render_stats(guest)
+                if after[0]!=initial[0] or after[1]<=initial[1]:
+                    raise AssertionError(f"Cursor motion incorrectly redrew whole screen: {initial} -> {after}")
+                print("PASS: cursor motion restores only cursor rectangles, no full redraw")
+                move_to(guest,monitor,*logical_xy(w,h,356,445))
                 start=len(guest.log)
                 cmd(monitor,"mouse_button 1")
                 cmd(monitor,"mouse_button 0")
@@ -106,13 +136,14 @@ def verify(iso: Path) -> None:
                 end=time.monotonic()+5
                 while not window_dump.exists() and time.monotonic()<end: time.sleep(0.04)
                 _,_,window_rgb=ppm_rgb(window_dump)
-                px=(round(h*200/498)*w+round(w*200/692))*3
+                sx,sy=logical_xy(w,h,200,200)
+                px=(sy*w+sx)*3
                 if min(window_rgb[px:px+3])<175:
                     raise AssertionError("Files window did not render an opaque light surface")
                 print("PASS: Files application window draws above unchanged desktop")
 
                 def click_logical(x: int,y: int) -> None:
-                    move_to(guest,monitor,round(w*x/692),round(h*y/498))
+                    move_to(guest,monitor,*logical_xy(w,h,x,y))
                     cmd(monitor,"mouse_button 1")
                     cmd(monitor,"mouse_button 0")
 
@@ -127,7 +158,7 @@ def verify(iso: Path) -> None:
                 # Grab titlebar while holding PS/2 left mouse button and drag.
                 guest.command("gui windows","GUI: Files open=true")
                 click_title=(203,88)
-                move_to(guest,monitor,round(w*click_title[0]/692),round(h*click_title[1]/498))
+                move_to(guest,monitor,*logical_xy(w,h,*click_title))
                 cmd(monitor,"mouse_button 1")
                 cmd(monitor,"mouse_move 38 23")
                 cmd(monitor,"mouse_button 0")
