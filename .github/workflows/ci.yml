@@ -7,6 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  compile-only:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
+      - name: Rust filesystem and QOI unit tests
+        run: make test
+      - name: Build x64 freestanding kernel
+        run: make kernel
   bare-metal:
     runs-on: ubuntu-latest
     permissions:
