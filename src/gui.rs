@@ -145,6 +145,30 @@ impl Framebuffer {
         self.desktop_cache.copy_from_slice(&self.scene);
         self.cache_ready=true;
     }
+    pub(crate) fn fill_span_native(&mut self,y:i32,x0:i32,x1:i32,c:[u8;3],a:u8){
+        if a==0||y<0||y>=self.height as i32{return;}
+        let lo=x0.max(0).min(self.width as i32) as usize;
+        let hi=x1.max(0).min(self.width as i32) as usize;
+        if lo>=hi{return;}
+        let start=y as usize*self.width+lo;
+        let end=y as usize*self.width+hi;
+        let pixel=self.pack(c);
+        if a==255{
+            self.scene[start..end].fill(pixel);
+            return;
+        }
+        let alpha=u32::from(a);
+        let inverse=255-alpha;
+        let cr=u32::from(c[0])*alpha;
+        let cg=u32::from(c[1])*alpha;
+        let cb=u32::from(c[2])*alpha;
+        for old in &mut self.scene[start..end] {
+            let r=(cr+((*old>>self.red_shift)&255)*inverse+127)/255;
+            let g=(cg+((*old>>self.green_shift)&255)*inverse+127)/255;
+            let b=(cb+((*old>>self.blue_shift)&255)*inverse+127)/255;
+            *old=(r<<self.red_shift)|(g<<self.green_shift)|(b<<self.blue_shift);
+        }
+    }
     pub(crate) fn blend_native(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8){
         if alpha==0||x<0||y<0||x>=self.width as i32||y>=self.height as i32{return;}
         let idx=y as usize*self.width+x as usize;
