@@ -61,7 +61,9 @@ pub extern "C" fn _start() -> ! {
     }
     kprintln!("");
     // GUI uses the Limine framebuffer, but serial commands and SamenFS1 remain alive.
+    kprintln!("GUI: acquiring framebuffer");
     if let Some(mut fb) = unsafe { gui::acquire() } {
+        kprintln!("GUI: framebuffer acquired");
         if let Some(mut desktop) = gui::Desktop::initialize(&mut fb) {
             let (width,height) = fb.dimensions();
             kprintln!("GUI: ready framebuffer={}x{} bpp=32", width, height);
