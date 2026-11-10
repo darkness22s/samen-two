@@ -11,7 +11,7 @@ LIMINE := $(BUILD)/limine-binary
 KERNEL := target/x86_64-unknown-none/release/samen-kernel
 HOST_TARGET := $(shell rustc -vV 2>/dev/null | sed -n 's/^host: //p')
 
-.PHONY: all kernel iso disk run test test-qemu clean
+.PHONY: all kernel iso disk run test test-qemu test-gui clean
 all: iso
 
 kernel:
@@ -59,6 +59,9 @@ test:
 
 test-qemu: iso
 	$(PYTHON) tools/test_qemu.py --iso $(ISO)
+
+test-gui: iso
+	$(PYTHON) tools/test_gui_qemu.py --iso $(ISO)
 
 # Clean artifacts, but NEVER delete the persistent data disk.
 clean:

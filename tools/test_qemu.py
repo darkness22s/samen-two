@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 class Guest:
-    def __init__(self, iso: Path, disk: Path):
+    def __init__(self, iso: Path, disk: Path, monitor_socket: Path | None = None):
         self.proc = subprocess.Popen(
             [
                 "qemu-system-x86_64",
@@ -28,7 +28,8 @@ class Guest:
                 "-drive", f"file={disk},format=raw,if=ide,index=0",
                 "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04",
                 "-display", "none",
-                "-monitor", "none",
+                "-vga", "std",
+                "-monitor", (f"unix:{monitor_socket},server,nowait" if monitor_socket else "none"),
                 "-serial", "stdio",
                 "-no-reboot",
             ],
