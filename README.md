@@ -5,7 +5,10 @@
 ## Features
 
 - Freestanding Rust kernel, `#![no_std]`, x86-64 ELF and Limine boot protocol
-- **Original desktop design:** Limine 32-bit framebuffer, pixel-perfect QOI decode of the supplied Figma screenshot, visible software pointer, PS/2 mouse, clickable Chrome/Files/Settings dock icons
+- **Native high-resolution desktop:** the original 2048×1152 desert wallpaper is JPEG-decoded once and aspect-correctly scaled to the actual framebuffer; the original SAMEN wordmark is a separate antialiased alpha layer. The old 692×498 flattened screenshot is no longer used at runtime.
+- **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Settings icons, selection feedback and application windows are rendered by Rust code as independent layers.
+- **Flicker-resistant compositor:** the scene and wallpaper live in normal RAM; complete scene updates are presented only after composition, while ordinary PS/2 mouse movement restores a small cursor rectangle instead of repainting the screen.
+- **High-resolution output:** Limine requests 1920×1080×32 where the display/video firmware supports it, with correct aspect ratio and framebuffer-mode fallback.
 - **Interactive windows:** click dock icons to open Files, Settings or Browser; drag title bars; use close, minimize, maximize and restore controls
 - **Files:** lists files directly from the mounted SamenFS1 disk; mouse-select to preview, create a real `Welcome.txt`, delete selected files
 - **Settings:** live glass/translucency, pointer-speed, and blue/purple accent toggles
@@ -42,9 +45,9 @@ A prebuilt, tested `Samen.iso` is uploaded to the [Samen development release](ht
 
 ## Desktop artwork and scope
 
-The original Figma-exported composition is preserved byte-for-byte as `assets/source-desktop-figma.png`, and the separately supplied wallpaper is preserved as `assets/source-wallpaper.jpg`. `assets/samen-desktop.qoi` is a **lossless** RGBA-independent RGB encoding of the composition rendered directly by the kernel; its decoded pixels match the uploaded PNG (no font, blur, wallpaper or icon recreation). The assets are bundled into the kernel at build time; there is no Figma MCP dependency.
+The original Figma-exported composition is preserved as `assets/source-desktop-figma.png` **for comparison only**, alongside the unmodified original high-resolution `assets/source-wallpaper.jpg`. The SAMEN logo is extracted as an antialiased alpha mask in `assets/logo-alpha-240x95.bin`. At runtime the kernel does **not** draw `assets/samen-desktop.qoi`; it decodes the original wallpaper and paints the dock and icons separately. The assets are embedded into the kernel at build time; the Figma file is never modified.
 
-The initial desktop uses the exact exported frame and scales to the Limine framebuffer resolution. The three dock hitboxes use source-frame coordinates; clicking one opens or restores its window. The Browser, Files and Settings now have kernel-native interactive windows. Their interiors are provisional because their exact Figma window designs were not supplied. The original desktop artwork remains untouched. The Browser is a local-pages UI rather than a functioning internet browser. The graphical interface currently supports QEMU's legacy PS/2 mouse, not USB HID devices.
+The initial desktop is visually matched to the supplied design, but independently rendered with higher-resolution assets and proper aspect-correct scaling. Dock hitboxes are mapped through a uniform desktop-space transform; clicking an icon opens or restores its window. The Browser, Files and Settings now have kernel-native interactive windows. Their interiors are provisional because their exact Figma window designs were not supplied. The original desktop artwork remains untouched. The Browser is a local-pages UI rather than a functioning internet browser. The graphical interface currently supports QEMU's legacy PS/2 mouse, not USB HID devices.
 
 ## Storage safety
 
@@ -53,3 +56,7 @@ SamenFS1 is a small experimental **raw-disk** filesystem, not FAT or ext4. The A
 ## Scope
 
 This is an early single-core kernel with a real graphical desktop, **not** yet a general-purpose desktop OS. It does not yet have multitasking, process isolation, networking, USB/SATA/NVMe support, or a userspace. The source, test scripts, and build system are included so functionality can be verified and extended.
+
+## Renderer diagnostics
+
+In the serial recovery shell, run `gui render stats` to inspect the number of full scene redraws and cursor-only updates. Moving the mouse without holding a window title bar must increase only the cursor counter. Run `make test-gui` to verify the physical PS/2 mouse path, native dock pixels, filesystem window interactions, and cursor redraw behavior under QEMU.
