@@ -26,26 +26,74 @@ fn rounded_hit(x:f32,y:f32,l:f32,t:f32,w:f32,h:f32,r:f32)->bool {
 
 pub fn round(fb:&mut Framebuffer,r:Rect,radius:f32,color:Color,alpha:u8){
     if r.w<=0||r.h<=0||alpha==0{return;}
-    let (l,t,e,b)=device_bounds(fb,r);
+    let (left,top,right,bottom)=device_bounds(fb,r);
     let (sw,sh)=fb.dimensions();
-    let (w,h)=((e-l) as f32,(b-t) as f32);
-    let rad=radius*fb.desktop_scale();
-    for py in t.max(0)..b.min(sh as i32){
-        for px in l.max(0)..e.min(sw as i32){
-            // Uniform body pixel, with supersampling only near the curved edge.
-            let x=px as f32;let y=py as f32;
-            let full=rounded_hit(x+0.02,y+0.02,l as f32,t as f32,w,h,rad)
-                &&rounded_hit(x+0.98,y+0.02,l as f32,t as f32,w,h,rad)
-                &&rounded_hit(x+0.02,y+0.98,l as f32,t as f32,w,h,rad)
-                &&rounded_hit(x+0.98,y+0.98,l as f32,t as f32,w,h,rad);
-            if full{fb.blend_native(px,py,color,alpha);continue;}
-            let mut samples=0u16;
-            for oy in [0.125,0.375,0.625,0.875]{
-                for ox in [0.125,0.375,0.625,0.875]{
-                    if rounded_hit(x+ox,y+oy,l as f32,t as f32,w,h,rad){samples+=1;}
+    let l=left.max(0);let t=top.max(0);
+    let e=right.min(sw as i32);let b=bottom.min(sh as i32);
+    if l>=e||t>=b{return;}
+    // Vast majority of pixels belong to the rectangular core. Fill them as
+    // hardware-sized spans instead of running 4+ floating shape tests per
+    // pixel. Only the *four curved corners* use expensive subpixel coverage.
+    let radius_px=(radius*fb.desktop_scale()).max(0.0);
+    if radius_px<0.5 {
+        for y in t..b{fb.native_span(y,l,e,color,alpha);}
+        return;
+    }
+    let radius_px=radius_px.min((right-left) as f32*0.5)
+        .min((bottom-top) as f32*0.5);
+    let rad=radius_px+0.01;
+    let inner=(radius_px-0.85).max(0.0);
+    let inner2=inner*inner;
+    let outer=(radius_px+0.85)*(radius_px+0.85);
+    let cut_left=(left as f32+rad) as i32;
+    let cut_right=(right as f32-rad) as i32;
+    for y in t..b{
+        let yf=y as f32+0.5;
+        // The middle rows are simple solid rectangles.
+        if yf>=top as f32+radius_px&&yf<=bottom as f32-radius_px{
+            fb.native_span(y,l,e,color,alpha);
+            continue;
+        }
+        fb.native_span(y,cut_left.max(l),cut_right.min(e),color,alpha);
+        let dy=if yf<top as f32+radius_px{
+            top as f32+radius_px-yf
+        }else{yf-(bottom as f32-radius_px)};
+        // Both corner bands are only ~30 physical pixels wide at 1080p.
+        for x in l..cut_left.min(e){
+            let dx=left as f32+radius_px-(x as f32+0.5);
+            let d2=dx*dx+dy*dy;
+            if d2<inner2{fb.blend_native(x,y,color,alpha);}
+            else if d2<outer{
+                let mut samples=0u16;
+                for oy in [0.125,0.375,0.625,0.875]{
+                    for ox in [0.125,0.375,0.625,0.875]{
+                        if rounded_hit(x as f32+ox,y as f32+oy,
+                                left as f32,top as f32,
+                                (right-left) as f32,(bottom-top) as f32,radius_px){
+                            samples+=1;
+                        }
+                    }
                 }
+                if samples!=0{fb.blend_native(x,y,color,((samples*u16::from(alpha)+8)/16) as u8);}
             }
-            if samples!=0{fb.blend_native(px,py,color,((samples*u16::from(alpha)+8)/16) as u8);}
+        }
+        for x in cut_right.max(l)..e{
+            let dx=x as f32+0.5-(right as f32-radius_px);
+            let d2=dx*dx+dy*dy;
+            if d2<inner2{fb.blend_native(x,y,color,alpha);}
+            else if d2<outer{
+                let mut samples=0u16;
+                for oy in [0.125,0.375,0.625,0.875]{
+                    for ox in [0.125,0.375,0.625,0.875]{
+                        if rounded_hit(x as f32+ox,y as f32+oy,
+                                left as f32,top as f32,
+                                (right-left) as f32,(bottom-top) as f32,radius_px){
+                            samples+=1;
+                        }
+                    }
+                }
+                if samples!=0{fb.blend_native(x,y,color,((samples*u16::from(alpha)+8)/16) as u8);}
+            }
         }
     }
 }
