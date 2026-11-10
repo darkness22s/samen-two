@@ -104,7 +104,7 @@ def verify(iso: Path) -> None:
                 w,h,rgb=ppm_rgb(dump)
                 if len(rgb)!=w*h*3 or w<640 or h<480:
                     raise AssertionError(f"Invalid framebuffer screenshot {(w,h)}")
-                if "native 2048x1152 wallpaper, double buffered, separate real dock" not in boot:
+                if "native 2048x1152 wallpaper, double buffered, 4x4 MSAA dock" not in boot:
                     raise AssertionError("New native renderer not initialized")
                 if w<1600 or h<900:
                     raise AssertionError(f"Requested high-resolution VGA mode unavailable: {(w,h)}")
@@ -116,6 +116,19 @@ def verify(iso: Path) -> None:
                     return rgb[i:i+3]
                 if pixel(309,445) != bytes([46,140,231]):
                     raise AssertionError(f"Dock icon is not procedurally rendered Chrome: {pixel(309,445)!r}")
+                # The Chrome hub is now rasterized as a true physical-pixel
+                # circle with 4x4 coverage. Its radial boundary should contain
+                # intermediate colors rather than a 2-3 pixel logical-grid step.
+                center_x,center_y=logical_xy(w,h,309,445)
+                edge_red=[]
+                for offset in range(12,28):
+                    pos=(center_y*w+center_x+offset)*3
+                    edge_red.append(rgb[pos])
+                if not any(60<channel<242 for channel in edge_red):
+                    raise AssertionError(
+                        f"Chrome icon edge lacks subpixel antialiasing: {edge_red}"
+                    )
+                print("PASS: native Chrome icon has antialiased physical-pixel edges")
                 print(f"PASS: high-resolution {(w,h)} wallpaper with independent native dock")
                 initial=render_stats(guest)
                 move_to(guest,monitor,*logical_xy(w,h,309,445))
