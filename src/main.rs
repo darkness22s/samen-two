@@ -9,6 +9,8 @@ mod dock;
 mod ps2;
 mod heap;
 mod windows;
+mod ui;
+mod terminal;
 
 
 extern crate alloc;
@@ -38,7 +40,7 @@ static REQUEST_END: [u64; 2] = [0xadc0e0531bb10d03, 0x9572709f31764c62];
 pub extern "C" fn _start() -> ! {
     arch::serial_init();
     kprintln!("");
-    kprintln!("  Samen OS 0.3 | x86-64 | Rust bare metal");
+    kprintln!("  Samen OS 0.4 | x86-64 | Rust bare metal");
     kprintln!("  Figma-matched graphical desktop + serial recovery shell.");
     kprintln!("  Type 'help' for commands.");
     let mut disk = AtaDisk::probe().ok();
@@ -66,7 +68,7 @@ pub extern "C" fn _start() -> ! {
             kprintln!("GUI: native 2048x1152 wallpaper, double buffered, 4x4 MSAA dock");
             let mouse = gui::mouse_init();
             kprintln!("GUI: PS/2 mouse {}", if mouse.is_some() { "ready" } else { "unavailable" });
-            kprintln!("GUI: Chrome/Files/Settings dock hit areas enabled");
+            kprintln!("GUI: Browser/Files/Terminal dock hit areas enabled");
             return graphics_shell(&mut fb, &mut desktop, mouse, &mut disk, &mut fs);
         }
         kprintln!("GUI: image decode failed; using serial recovery shell.");
@@ -87,9 +89,23 @@ fn graphics_shell(
     let mut len = 0usize;
     kprint!("samen> ");
     loop {
-        if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
-            let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down,fs.as_ref());
-            apply_gui_action(action,fb,desktop,disk,fs);
+        if let Some(event)=mouse.as_mut().and_then(|m|m.poll()){
+            match event {
+                ps2::InputEvent::Mouse(motion)=>{
+                    let action=desktop.on_mouse(
+                        fb,motion.dx,motion.dy,motion.left_pressed,motion.left_down,fs.as_ref()
+                    );
+                    apply_gui_action(action,fb,desktop,disk,fs);
+                }
+                ps2::InputEvent::Key(key)=>{
+                    if desktop.windows.terminal_focused(){
+                        if desktop.windows.terminal.feed(key,disk,fs){
+                            desktop.windows.sync_files(fs.as_ref());
+                            desktop.paint_all(fb);
+                        }
+                    }
+                }
+            }
         }
         let Some(byte) = arch::try_read() else {
             core::hint::spin_loop();
@@ -113,8 +129,11 @@ fn graphics_shell(
                             "gui browser" | "gui chrome" => desktop.choose(fb, gui::App::Browser),
                             "gui browser status" => kprintln!("GUI: browser help={}",desktop.windows.browser_help),
                             "gui files" => {desktop.windows.sync_files(fs.as_ref());desktop.choose(fb, gui::App::Files);},
-                            "gui settings" => desktop.choose(fb, gui::App::Settings),
-                            "gui settings status" => kprintln!("GUI: settings glass={} fast_pointer={} purple_accent={}", desktop.windows.glass,desktop.windows.fast_pointer,desktop.windows.purple_accent),
+                            "gui terminal" => desktop.choose(fb,gui::App::Terminal),
+                            "gui terminal status" => kprintln!("GUI: terminal focused={} lines={} input={}",
+                                desktop.windows.terminal_focused(),
+                                desktop.windows.terminal.count,
+                                core::str::from_utf8(&desktop.windows.terminal.input[..desktop.windows.terminal.input_len]).unwrap_or("?")),
                             _ => {dispatch(command,disk,fs); desktop.refresh_files(fb,fs.as_ref());},
                         }
                     }
@@ -256,8 +275,8 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
     match command {
         "help" => {
             kprintln!("about             Kernel and filesystem details");
-            kprintln!("gui [status|windows|render stats|redraw|browser|files|settings]  Graphical desktop");
-            kprintln!("gui settings status / gui browser status  Inspect window controls");
+            kprintln!("gui [status|windows|render stats|redraw|browser|files|terminal]  Graphical desktop");
+            kprintln!("gui terminal status / gui browser status  Inspect window controls");
             kprintln!("help              Display this help");
             kprintln!("disk              Show disk status");
             kprintln!("ls                List files");
@@ -270,9 +289,9 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
             kprintln!("exit              Power off (also QEMU test exit)");
         }
         "about" => {
-            kprintln!("Samen 0.2: independent x86-64 Rust kernel using Limine.");
+            kprintln!("Samen 0.4: independent x86-64 Rust kernel using Limine.");
             kprintln!("Single core, serial I/O, ATA PIO, SamenFS1 root directory.");
-            kprintln!("GUI desktop: interactive browser, files and settings windows.");
+            kprintln!("GUI desktop: interactive browser, files and terminal windows.");
             kprintln!("No userspace, processes, or non-IDE storage yet.");
         }
         "disk" => match disk.as_ref() {

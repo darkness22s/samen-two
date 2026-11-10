@@ -116,33 +116,30 @@ fn files(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
     round(fb,cx-14.0*s,cy+12.9*s,28.1*s,1.5*s,0.7*s,[36,134,212],95);
 }
 
-fn cog(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
-    // Native vector gear: an outer tile, eight rectangular teeth, a clean
-    // circular ring and a central bore with its own specular glint.
-    round(fb,cx-18.0*s,cy-18.0*s,36.0*s,36.0*s,8.2*s,[38,52,73],255);
-    round(fb,cx-16.5*s,cy-16.5*s,33.0*s,33.0*s,7.4*s,[73,91,115],255);
-    round(fb,cx-14.0*s,cy-14.3*s,28.0*s,5.0*s,2.5*s,[162,180,202],53);
-    // Eight directions defined by unit vectors: fast enough for MSAA and
-    // doesn't depend on trigonometric functions in the freestanding kernel.
-    const DIRS:[(f32,f32);8]=[
-        (1.0,0.0),(0.70710677,0.70710677),(0.0,1.0),
-        (-0.70710677,0.70710677),(-1.0,0.0),
-        (-0.70710677,-0.70710677),(0.0,-1.0),
-        (0.70710677,-0.70710677),
-    ];
-    let outer=13.4*s;
-    raster(fb,Area::around(cx,cy,outer),[242,246,253],255,|x,y|{
-        let dx=x-cx;let dy=y-cy;let d2=dx*dx+dy*dy;
-        if d2<=11.1*s*11.1*s && d2>=7.8*s*7.8*s{return true;}
-        if d2>outer*outer{return false;}
-        DIRS.iter().any(|&(ux,uy)|{
-            let along=dx*ux+dy*uy;
-            let across=dx*(-uy)+dy*ux;
-            along>=9.0*s && along<=13.4*s && across>=-2.1*s && across<=2.1*s
-        })
-    });
-    disc(fb,cx,cy,5.1*s,[69,89,117],255);
-    disc(fb,cx-1.3*s,cy-1.4*s,1.15*s,[140,168,195],121);
+fn stroke(fb:&mut Framebuffer,x0:f32,y0:f32,x1:f32,y1:f32,thick:f32,color:Color){
+    let left=x0.min(x1)-thick-2.0;
+    let top=y0.min(y1)-thick-2.0;
+    let right=x0.max(x1)+thick+2.0;
+    let bottom=y0.max(y1)+thick+2.0;
+    raster(fb,Area{x:left as i32,y:top as i32,
+        w:(right-left+2.0) as i32,h:(bottom-top+2.0) as i32},
+        color,255,|x,y|{
+            let vx=x1-x0;let vy=y1-y0;
+            let sum=vx*vx+vy*vy;
+            let t=if sum==0.0{0.0}else{((x-x0)*vx+(y-y0)*vy)/sum};
+            let t=t.clamp(0.0,1.0);
+            let dx=x-(x0+t*vx);let dy=y-(y0+t*vy);
+            dx*dx+dy*dy<=thick*thick*0.25
+        });
+}
+fn terminal_icon(fb:&mut Framebuffer,cx:f32,cy:f32,s:f32){
+    // Proper high-definition, antialiased terminal tile rather than the gear.
+    round(fb,cx-18.0*s,cy-18.0*s,36.0*s,36.0*s,8.0*s,[20,36,55],255);
+    round(fb,cx-16.2*s,cy-16.3*s,32.4*s,32.4*s,6.8*s,[34,54,76],255);
+    round(fb,cx-15.0*s,cy-15.0*s,30.0*s,3.0*s,1.5*s,[91,119,148],128);
+    stroke(fb,cx-9.0*s,cy-6.0*s,cx-3.0*s,cy,2.1*s,[116,236,184]);
+    stroke(fb,cx-3.0*s,cy,cx-9.0*s,cy+6.0*s,2.1*s,[116,236,184]);
+    stroke(fb,cx-0.5*s,cy+7.0*s,cx+9.3*s,cy+7.0*s,2.0*s,[229,245,251]);
 }
 
 pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
@@ -168,7 +165,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
     for (app,logical_x) in [
         (App::Browser,309),
         (App::Files,357),
-        (App::Settings,406),
+        (App::Terminal,406),
     ] {
         let (ix,iy)=fb.to_screen(logical_x,445);
         let cx=ix as f32;
@@ -184,7 +181,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
         match app {
             App::Browser=>chrome(fb,cx,cy,s),
             App::Files=>files(fb,cx,cy,s),
-            App::Settings=>cog(fb,cx,cy,s),
+            App::Terminal=>terminal_icon(fb,cx,cy,s),
         }
     }
 }
@@ -193,7 +190,7 @@ pub fn draw(fb:&mut Framebuffer,selected:Option<App>) {
 /// of rebuilding every icon, blur/shadow and glass layer on every app switch.
 pub fn draw_selection(fb:&mut Framebuffer,app:App) {
     let s=fb.desktop_scale();
-    let logical_x=match app{App::Browser=>309,App::Files=>357,App::Settings=>406};
+    let logical_x=match app{App::Browser=>309,App::Files=>357,App::Terminal=>406};
     let (x,y)=fb.to_screen(logical_x,445);
     let (cx,cy)=(x as f32,y as f32);
     clip_arc(fb,cx,cy,21.7*s,20.5*s,[248,252,255],228);
