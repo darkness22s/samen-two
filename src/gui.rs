@@ -2,7 +2,7 @@
 //! exported Figma artwork, PS/2 cursor, dock hit testing and launch events.
 //! Browser / Files / Settings window interiors are deliberately Phase 2.
 use core::ptr::{read_volatile, write_volatile};
-use crate::{kprintln, ps2::Mouse};
+use crate::{kprintln, ps2::Mouse, windows::{Manager, Action}};
 
 
 const DESKTOP_QOI: &[u8] = include_bytes!("../assets/samen-desktop.qoi");
@@ -101,6 +101,34 @@ impl Framebuffer {
     }
 
     pub fn dimensions(&self) -> (usize, usize) { (self.width, self.height) }
+
+    // Logical 692x498 desktop-space coordinates, with straight-alpha compositing
+    // against existing framebuffer contents. Bounded to Limine's mapped surface.
+    pub(crate) fn logical_blend(&mut self,x:i32,y:i32,c:[u8;3],alpha:u8) {
+        if x<0||y<0||x>=692||y>=498{return;}
+        let x0=x as usize*self.width/692;
+        let x1=((x+1) as usize*self.width/692).max(x0+1).min(self.width);
+        let y0=y as usize*self.height/498;
+        let y1=((y+1) as usize*self.height/498).max(y0+1).min(self.height);
+        for py in y0..y1 {
+            for px in x0..x1 {
+                let offset=py*self.pitch+px*4;
+                // SAFETY: all offsets are in framebuffer bounds established at boot.
+                unsafe {
+                    let pixel=self.address.add(offset).cast::<u32>();
+                    let previous=read_volatile(pixel);
+                    let shifts=[self.red_shift,self.green_shift,self.blue_shift];
+                    let mut output=0u32;
+                    for i in 0..3 {
+                        let old=((previous>>shifts[i])&255) as u32;
+                        let new=(u32::from(c[i])*u32::from(alpha)+old*(255-u32::from(alpha))+127)/255;
+                        output|=new<<shifts[i];
+                    }
+                    write_volatile(pixel,output);
+                }
+            }
+        }
+    }
 }
 
 /// Files are real mouse targets; desktop artwork itself is never redrawn.
@@ -116,6 +144,7 @@ pub struct Desktop {
     pub x: i32,
     pub y: i32,
     pub selected: Option<App>,
+    pub windows: Manager,
 }
 impl Desktop {
     pub fn initialize(fb: &mut Framebuffer) -> Option<Self> {
@@ -127,6 +156,7 @@ impl Desktop {
             x: (fb.width / 2) as i32,
             y: (fb.height / 2) as i32,
             selected: None,
+            windows: Manager::new(),
         };
         desktop.paint_all(fb);
         Some(desktop)
@@ -150,6 +180,7 @@ impl Desktop {
     }
     pub fn paint_all(&mut self, fb: &mut Framebuffer) {
         self.paint_region(fb, 0, 0, fb.width, fb.height);
+        self.windows.draw(fb);
         self.paint_selection(fb);
         self.paint_cursor(fb);
     }
@@ -204,23 +235,34 @@ impl Desktop {
     }
     pub fn choose(&mut self, fb: &mut Framebuffer, app: App) {
         self.selected = Some(app);
+        self.windows.open(app);
         self.paint_all(fb);
         kprintln!("GUI: selected {}", app.label());
-        kprintln!("GUI: launch requested for {} (window UI is Phase 2)", app.label());
+        kprintln!("GUI: opened {} window", app.label());
     }
-    pub fn on_mouse(&mut self, fb: &mut Framebuffer, dx: i32, dy: i32, left_pressed: bool) {
-        let (a,b,c,d) = self.cursor_bounds();
-        self.paint_region(fb, a, b, c, d);
-        // Restore selection outline on cursor damage if it overlaps the icon.
-        self.paint_selection(fb);
-        self.x = (self.x + dx).clamp(0, fb.width.saturating_sub(1) as i32);
-        self.y = (self.y + dy).clamp(0, fb.height.saturating_sub(1) as i32);
+    pub fn on_mouse(&mut self,fb:&mut Framebuffer,dx:i32,dy:i32,
+        left_pressed:bool,left_down:bool)->Action {
+        let speed=if self.windows.fast_pointer {2}else{1};
+        self.x=(self.x+dx*speed).clamp(0,fb.width.saturating_sub(1) as i32);
+        self.y=(self.y+dy*speed).clamp(0,fb.height.saturating_sub(1) as i32);
+        let lx=(self.x as i64*692/fb.width as i64) as i32;
+        let ly=(self.y as i64*498/fb.height as i64) as i32;
+        self.windows.on_move(lx,ly,left_down);
+        let mut action=Action::None;
         if left_pressed {
-            if let Some(app) = self.hit_test(fb, self.x as usize, self.y as usize) {
-                self.choose(fb, app);
+            if let Some(app)=self.hit_test(fb,self.x as usize,self.y as usize) {
+                self.choose(fb,app);
+            } else {
+                action=self.windows.click(lx,ly);
             }
         }
-        self.paint_cursor(fb);
+        if !left_down {self.windows.release();}
+        self.paint_all(fb);
+        action
+    }
+    pub fn refresh_files(&mut self,fb:&mut Framebuffer,fs:Option<&samen_kernel::fs::Fs>){
+        self.windows.sync_files(fs);
+        if self.windows.is_open(App::Files){self.paint_all(fb);}
     }
     pub fn selected_name(&self) -> &'static str {
         self.selected.map(|a| a.label()).unwrap_or("none")

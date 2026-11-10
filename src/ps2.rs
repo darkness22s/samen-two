@@ -13,6 +13,7 @@ pub struct Motion {
     pub dx: i32,
     pub dy: i32,
     pub left_pressed: bool,
+    pub left_down: bool,
 }
 
 fn wait_input() -> bool {
@@ -80,6 +81,7 @@ impl Mouse {
             dx: (x as i8) as i32,
             dy: -((y as i8) as i32),
             left_pressed: pressed,
+            left_down: left,
         })
     }
 }

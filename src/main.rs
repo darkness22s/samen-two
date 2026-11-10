@@ -6,6 +6,7 @@ mod arch;
 mod ata;
 mod gui;
 mod ps2;
+mod windows;
 
 
 use core::panic::PanicInfo;
@@ -83,7 +84,8 @@ fn graphics_shell(
     kprint!("samen> ");
     loop {
         if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
-            desktop.on_mouse(fb, event.dx, event.dy, event.left_pressed);
+            let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down);
+            apply_gui_action(action,fb,desktop,disk,fs);
         }
         let Some(byte) = arch::try_read() else {
             core::hint::spin_loop();
@@ -98,10 +100,15 @@ fn graphics_shell(
                         match command {
                             "gui" | "gui redraw" => { desktop.paint_all(fb); kprintln!("GUI: redrawn"); },
                             "gui status" => kprintln!("GUI: selected {} pointer={},{}", desktop.selected_name(),desktop.x,desktop.y),
+                            "gui windows" => {
+                                for w in desktop.windows.windows.iter() {
+                                    kprintln!("GUI: {} open={} minimized={} maximized={} rect={},{},{},{}",w.app.label(),w.open,w.minimized,w.maximized,w.rect.x,w.rect.y,w.rect.w,w.rect.h);
+                                }
+                            },
                             "gui browser" | "gui chrome" => desktop.choose(fb, gui::App::Browser),
                             "gui files" => desktop.choose(fb, gui::App::Files),
                             "gui settings" => desktop.choose(fb, gui::App::Settings),
-                            _ => dispatch(command,disk,fs),
+                            _ => {dispatch(command,disk,fs); desktop.refresh_files(fb,fs.as_ref());},
                         }
                     }
                     Err(_) => kprintln!("Input must be valid UTF-8."),
@@ -121,6 +128,57 @@ fn graphics_shell(
             _ => {}
         }
     }
+}
+
+fn apply_gui_action(
+    action:windows::Action,fb:&mut gui::Framebuffer,desktop:&mut gui::Desktop,
+    disk:&mut Option<AtaDisk>,fs:&mut Option<Fs>,
+){
+    match action {
+        windows::Action::None=>return,
+        windows::Action::CreateSample=>{
+            match (disk.as_mut(),fs.as_mut()) {
+                (Some(d),Some(f))=>{
+                    let name="Welcome.txt";
+                    match f.write_file(d,name,b"Welcome to Samen OS. This file is stored on SamenFS1.") {
+                        Ok(())=>kprintln!("GUI: created Welcome.txt"),
+                        Err(err)=>kprintln!("GUI: create failed: {:?}",err),
+                    }
+                }
+                _=>kprintln!("GUI: no mounted SamenFS1 disk"),
+            }
+        }
+        windows::Action::DeleteSelected=>{
+            let name=desktop.windows.file_name();
+            match (name,disk.as_mut(),fs.as_mut()) {
+                (Some(name),Some(d),Some(f))=>{
+                    match f.delete_file(d,name){
+                        Ok(())=>kprintln!("GUI: deleted {}",name),
+                        Err(err)=>kprintln!("GUI: delete failed: {:?}",err),
+                    }
+                    desktop.windows.selected_file=None;
+                    desktop.windows.clear_preview();
+                }
+                _=>kprintln!("GUI: select a file and mount SamenFS1 first"),
+            }
+        }
+        windows::Action::PreviewSelected=>{
+            let mut contents=[0u8;256];
+            let mut count=0usize;
+            if let (Some(name),Some(d),Some(f))=
+                (desktop.windows.file_name(),disk.as_mut(),fs.as_ref()) {
+                let result=f.read_file(d,name,|part|{
+                    let take=part.len().min(contents.len()-count);
+                    contents[count..count+take].copy_from_slice(&part[..take]);
+                    count+=take;
+                });
+                if result.is_ok(){desktop.windows.set_preview(&contents[..count]);}
+                else {desktop.windows.clear_preview();}
+            }
+        }
+    }
+    desktop.refresh_files(fb,fs.as_ref());
+    desktop.paint_all(fb);
 }
 
 fn shell(disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) -> ! {
@@ -191,7 +249,7 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
     match command {
         "help" => {
             kprintln!("about             Kernel and filesystem details");
-            kprintln!("gui [status|redraw|browser|files|settings]  Graphical desktop");
+            kprintln!("gui [status|windows|redraw|browser|files|settings]  Graphical desktop");
             kprintln!("help              Display this help");
             kprintln!("disk              Show disk status");
             kprintln!("ls                List files");
@@ -206,7 +264,7 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
         "about" => {
             kprintln!("Samen 0.2: independent x86-64 Rust kernel using Limine.");
             kprintln!("Single core, serial I/O, ATA PIO, SamenFS1 root directory.");
-            kprintln!("GUI desktop: framebuffer, PS/2 mouse and clickable dock; app windows pending Phase 2.");
+            kprintln!("GUI desktop: interactive browser, files and settings windows.");
             kprintln!("No userspace, processes, or non-IDE storage yet.");
         }
         "disk" => match disk.as_ref() {
