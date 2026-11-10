@@ -213,10 +213,24 @@ def verify(iso: Path) -> None:
                     if "last='help'" in report: break
                 else:
                     raise AssertionError("PS/2 keyboard did not execute Terminal help")
+                # Exercise real PS/2 typing for a mutation as well as 'help'.
+                # QEMU sendkey delivers make/break codes through the i8042 path.
+                for key in ["w","r","i","t","e","spc","K","e","y","s","dot","t","x","t",
+                            "spc","F","r","o","m","spc","k","e","y","b","o","a","r","d","ret"]:
+                    cmd(monitor,"sendkey "+key.lower())
+                end=time.monotonic()+8
+                while time.monotonic()<end:
+                    start=len(guest.log)
+                    guest.command("gui terminal status","GUI: terminal executions=")
+                    report=guest.log[start:].decode("utf8",errors="replace")
+                    if "last='write Keys.txt From keyboard'" in report: break
+                else:
+                    raise AssertionError("Keyboard did not submit the terminal write command")
+                guest.command("cat Keys.txt","From keyboard")
                 guest.command("gui terminal command write Shell.txt On disk","GUI: terminal executed")
                 guest.command("cat Shell.txt","On disk")
                 guest.command("gui terminal command ls","GUI: terminal executed")
-                print("PASS: Terminal receives PS/2 keyboard and executes real SamenFS1 commands")
+                print("PASS: Terminal receives PS/2 keyboard and writes to real SamenFS1")
 
                 # Browser contains honest local Home and Help screens.
                 click_logical(307,445)
@@ -228,6 +242,18 @@ def verify(iso: Path) -> None:
             guest.exit()
         finally:
             guest.close()
+
+        # The GUI terminal must persist the data across a full QEMU shutdown
+        # and fresh boot, not merely share the in-memory filesystem cache.
+        guest=Guest(iso,disk)
+        try:
+            guest.command("cat Keys.txt","From keyboard")
+            guest.command("cat Shell.txt","On disk")
+            guest.command("ls","Keys.txt")
+            guest.exit()
+        finally:
+            guest.close()
+        print("PASS: GUI Terminal-created SamenFS1 files survive a cold boot")
 
 
 if __name__=="__main__":
