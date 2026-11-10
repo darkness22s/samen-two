@@ -216,6 +216,7 @@ def verify(iso: Path) -> None:
                 # Use short scancodes to avoid QEMU monitor key-name aliases.
                 for char in "write keyboard works":
                     cmd(monitor,"sendkey spc" if char==" " else f"sendkey {char}")
+                guest.command("gui terminal status","input=write keyboard works")
                 start=len(guest.log)
                 cmd(monitor,"sendkey ret")
                 guest.wait_for("GUI-TERM: Saved keyboard (5 bytes).",start=start,timeout=12)
