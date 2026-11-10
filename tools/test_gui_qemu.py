@@ -134,7 +134,7 @@ def verify(iso: Path) -> None:
                 before=len(guest.log)
                 guest.command("gui windows","GUI: Files open=true")
                 out=guest.log[before:].decode("utf8",errors="replace")
-                match=re.search(r"GUI: Files open=true minimized=false maximized=false rect=(\\d+),(\\d+)",out)
+                match=re.search(r"GUI: Files open=true minimized=false maximized=false rect=(\d+),(\d+)",out)
                 if not match or int(match.group(1))<=117:
                     raise AssertionError("Window dragging did not update its rectangle: "+out)
                 fx,fy=map(int,match.groups())
