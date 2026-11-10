@@ -44,6 +44,7 @@ jobs:
         run: make test-gui
       - name: Upload tested bootable ISO
         uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: Samen-ISO
           path: build/Samen.iso
