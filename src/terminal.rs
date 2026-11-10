@@ -130,17 +130,20 @@ impl Terminal {
             "cat"=>{
                 let mut buffer=[0u8;COLS];
                 let mut count=0usize;
+                let mut truncated=false;
                 match (disk.as_mut(),fs.as_ref()){
                     (Some(d),Some(f))=>{
                         let result=f.read_file(d,args.trim(),|part|{
                             let n=part.len().min(COLS-count);
                             buffer[count..count+n].copy_from_slice(&part[..n]);
                             count+=n;
+                            if n<part.len(){truncated=true;}
                         });
                         match result {
                             Ok(())=>{
                                 let display=core::str::from_utf8(&buffer[..count]).unwrap_or("[binary data]");
                                 self.say(display);
+                                if truncated { self.say("[output truncated; file is larger than display buffer]"); }
                             }
                             Err(err)=>self.output(format_args!("cat: {:?}",err))
                         }
