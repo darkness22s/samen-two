@@ -160,6 +160,16 @@ impl<'a> Ui<'a>{
             dx*dx+dy*dy<=rad*rad
         });
     }
+    pub fn measure_text(&self,size:f32,bold:bool,string:&str)->f32{
+        let mut advance=0.0f32;
+        for byte in string.bytes(){
+            if (32..=126).contains(&byte){
+                let glyph=GLYPHS[usize::from(bold)][(byte-32) as usize];
+                advance+=glyph.advance as f32/64.0*size/GLYPH_BASE;
+            }
+        }
+        advance
+    }
     pub fn text(&mut self,x:f32,baseline:f32,size:f32,bold:bool,string:&str,c:Color,max_width:f32){
         let mut pen=x;
         let right=x+max_width;

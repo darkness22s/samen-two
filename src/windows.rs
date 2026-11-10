@@ -343,7 +343,7 @@ impl Manager {
         ui.text(x+21.0,y+h-21.0,11.2,true,"~ %",[111,234,179],34.0);
         let input=core::str::from_utf8(&self.terminal.input[..self.terminal.input_len]).unwrap_or("");
         ui.text(x+57.0,y+h-21.0,11.2,false,input,[234,241,250],w-87.0);
-        let cursor_x=x+57.0+(self.terminal.input_len as f32*6.25).min(w-91.0);
+        let cursor_x=x+57.0+ui.measure_text(11.2,false,input).min(w-91.0);
         ui.caret(cursor_x,y+h-16.0,13.0,[105,237,183]);
     }
     /// Update only the Terminal input strip. No full-window redraw per letter.
