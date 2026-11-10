@@ -70,20 +70,61 @@ impl<'a> Ui<'a>{
         }
     }
     pub fn round(&mut self,x:f32,y:f32,w:f32,h:f32,r:f32,color:Color,a:u8){
+        if w<=0.0||h<=0.0||a==0{return;}
         let (l,t)=self.map(x,y);
-        let (w,h,r)=(w*self.scale,h*self.scale,r*self.scale);
-        self.area(l,t,w,h,color,a,|px,py|{
+        let (w,h,r)=(w*self.scale,h*self.scale,r*self.scale.min(w*0.5).min(h*0.5));
+        let radius=r.min(w*0.5).min(h*0.5);
+        let top=(t as i32).max(0);
+        let bottom=((t+h+1.0) as i32).min(self.fb.dimensions().1 as i32);
+        let inside=|px:f32,py:f32|{
             if px<l||py<t||px>=l+w||py>=t+h{return false;}
-            let radius=r.min(w*0.5).min(h*0.5);
             let dx=if px<l+radius{l+radius-px}else if px>l+w-radius{px-(l+w-radius)}else{0.0};
             let dy=if py<t+radius{t+radius-py}else if py>t+h-radius{py-(t+h-radius)}else{0.0};
             dx*dx+dy*dy<=radius*radius
-        });
+        };
+        for py in top..bottom{
+            let yc=py as f32+0.5;
+            if yc<t||yc>=t+h{continue;}
+            let dy=if yc<t+radius{t+radius-yc}
+                   else if yc>t+h-radius{yc-(t+h-radius)}
+                   else{0.0};
+            let reach=if dy==0.0{radius}else{approx_sqrt((radius*radius-dy*dy).max(0.0))};
+            let left=if dy>0.0{l+radius-reach}else{l};
+            let right=if dy>0.0{l+w-radius+reach}else{l+w};
+            let x0=(left+1.0) as i32;
+            let x1=(right-1.0) as i32;
+            if x1>x0{
+                self.fb.fill_span_native(py,x0,x1,color,a);
+            }
+            // Four sample edge coverage is only needed near the boundaries.
+            for px in (x0-2)..(x0+1){
+                let mut n=0u32;
+                for fy in SAMPLES{for fx in SAMPLES{
+                    if inside(px as f32+fx,py as f32+fy){n+=1;}
+                }}
+                if n>0{self.pixel(px,py,color,((n*u32::from(a)+8)/16) as u8);}
+            }
+            for px in x1..(x1+3){
+                if px<x0+1{continue;}
+                let mut n=0u32;
+                for fy in SAMPLES{for fx in SAMPLES{
+                    if inside(px as f32+fx,py as f32+fy){n+=1;}
+                }}
+                if n>0{self.pixel(px,py,color,((n*u32::from(a)+8)/16) as u8);}
+            }
+        }
     }
     pub fn rect(&mut self,x:f32,y:f32,w:f32,h:f32,c:Color,a:u8){
+        if w<=0.0||h<=0.0||a==0{return;}
         let (l,t)=self.map(x,y);
-        let (w,h)=(w*self.scale,h*self.scale);
-        self.area(l,t,w,h,c,a,|px,py|px>=l&&py>=t&&px<l+w&&py<t+h);
+        let (width,height)=(w*self.scale,h*self.scale);
+        let y0=(t as i32).max(0);
+        let y1=((t+height+0.5) as i32).min(self.fb.dimensions().1 as i32);
+        let x0=(l+0.5) as i32;
+        let x1=(l+width+0.5) as i32;
+        for py in y0..y1{
+            self.fb.fill_span_native(py,x0,x1,c,a);
+        }
     }
     pub fn circle(&mut self,cx:f32,cy:f32,r:f32,c:Color,a:u8){
         let (x,y)=self.map(cx,cy);
@@ -194,4 +235,13 @@ impl<'a> Ui<'a>{
     pub fn caret(&mut self,x:f32,y:f32,h:f32,c:Color){
         self.round(x,y-h,1.8,h,0.6,c,220);
     }
+}
+
+// No libm/libc dependency in the freestanding kernel. This is called only
+// on a handful of rounded-panel edge rows, not per pixel.
+fn approx_sqrt(v:f32)->f32{
+    if v<=0.0{return 0.0;}
+    let mut x=if v>1.0{v*0.25+1.0}else{1.0};
+    for _ in 0..11{x=0.5*(x+v/x);}
+    x
 }
