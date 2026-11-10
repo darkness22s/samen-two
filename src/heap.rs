@@ -21,7 +21,7 @@ unsafe impl GlobalAlloc for BootHeap {
             if end>BYTES{return null_mut();}
             match NEXT.compare_exchange_weak(at,end,Ordering::SeqCst,Ordering::Relaxed){
                 Ok(_)=>{
-                    let base=core::ptr::addr_of_mut!(STORAGE.0).cast::<u8>();
+                    let base=unsafe{core::ptr::addr_of_mut!(STORAGE.0).cast::<u8>()};
                     return unsafe{base.add(start)};
                 }
                 Err(other)=>at=other,

@@ -261,8 +261,8 @@ impl Desktop {
         // Interpolated alpha at *native screen pixels*: no 2x2 bitmap blocks.
         let (ox,oy)=fb.to_screen(237,96);
         let scale=fb.scale();
-        let ow=(LOGO_W as f32*scale).ceil() as i32;
-        let oh=(LOGO_H as f32*scale).ceil() as i32;
+        let ow=(LOGO_W as f32*scale+0.999) as i32;
+        let oh=(LOGO_H as f32*scale+0.999) as i32;
         for py in 0..oh{
             let fy=((py as f32+0.5)/scale-0.5).clamp(0.0,(LOGO_H-1) as f32);
             let sy=fy as usize;
@@ -278,7 +278,7 @@ impl Desktop {
                 let a01=LOGO_MASK[sy1*LOGO_W+sx] as f32;
                 let a11=LOGO_MASK[sy1*LOGO_W+sx1] as f32;
                 let a=(a00*(1.0-tx)*(1.0-ty)+a10*tx*(1.0-ty)
-                      +a01*(1.0-tx)*ty+a11*tx*ty).round() as u8;
+                      +a01*(1.0-tx)*ty+a11*tx*ty+0.5) as u8;
                 fb.blend_native(ox+px,oy+py,[255,255,255],a);
             }
         }
@@ -350,7 +350,7 @@ impl Desktop {
         // Dark rounded tile with 8 gear teeth, ring and central bore.
         Self::rounded(fb,cx-18,cy-18,36,36,8,[45,57,73],255);
         Self::rounded(fb,cx-16,cy-16,32,32,7,[73,87,105],250);
-        for dy in -13..=13{for dx in -13..=13{
+        for dy in -13i32..=13i32{for dx in -13i32..=13i32{
             let d2=dx*dx+dy*dy;
             let tooth=(dx.abs()<4||dy.abs()<4||
               (dx.abs()-dy.abs()).abs()<3);
