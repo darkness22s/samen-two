@@ -6,7 +6,7 @@ publish = false
 description = "Samen: freestanding x86-64 Rust OS kernel"
 
 [dependencies]
-zune-jpeg = { version = "=0.5.12", default-features = false, features = ["alloc"] }
+zune-jpeg = { version = "=0.5.12", default-features = false }
 
 [lib]
 name = "samen_kernel"
