@@ -72,7 +72,7 @@ impl<'a> Ui<'a>{
     pub fn round(&mut self,x:f32,y:f32,w:f32,h:f32,r:f32,color:Color,a:u8){
         if w<=0.0||h<=0.0||a==0{return;}
         let (l,t)=self.map(x,y);
-        let (w,h,r)=(w*self.scale,h*self.scale,r*self.scale.min(w*0.5).min(h*0.5));
+        let (w,h,r)=(w*self.scale,h*self.scale,r*self.scale);
         let radius=r.min(w*0.5).min(h*0.5);
         let top=(t as i32).max(0);
         let bottom=((t+h+1.0) as i32).min(self.fb.dimensions().1 as i32);
@@ -97,7 +97,7 @@ impl<'a> Ui<'a>{
                 self.fb.fill_span_native(py,x0,x1,color,a);
             }
             // Four sample edge coverage is only needed near the boundaries.
-            for px in (x0-2)..(x0+1){
+            for px in (x0-2)..x0{
                 let mut n=0u32;
                 for fy in SAMPLES{for fx in SAMPLES{
                     if inside(px as f32+fx,py as f32+fy){n+=1;}
