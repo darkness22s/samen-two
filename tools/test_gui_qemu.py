@@ -196,12 +196,27 @@ def verify(iso: Path) -> None:
                 click_logical(356,445)
                 guest.command("gui windows","GUI: Files open=true")
 
-                # Settings toggles alter actual in-kernel state.
+                # The old Settings app is now an actual keyboard-driven
+                # kernel Terminal, with real SamenFS1 operations.
                 click_logical(408,445)
-                guest.command("gui settings status","GUI: settings glass=true")
-                click_logical(552,195)
-                guest.command("gui settings status","GUI: settings glass=false")
-                print("PASS: Settings glass toggle accepts mouse clicks")
+                guest.command("gui windows","GUI: Terminal open=true")
+                guest.command("gui terminal status","GUI: terminal executions=0")
+                for key in ["h","e","l","p","ret"]:
+                    cmd(monitor,"sendkey "+key)
+                # The keyboard scancodes must reach the guest terminal via
+                # i8042, not a fake serial-driven command.
+                end=time.monotonic()+8
+                while time.monotonic()<end:
+                    start=len(guest.log)
+                    guest.command("gui terminal status","GUI: terminal executions=")
+                    report=guest.log[start:].decode("utf8",errors="replace")
+                    if "last='help'" in report: break
+                else:
+                    raise AssertionError("PS/2 keyboard did not execute Terminal help")
+                guest.command("gui terminal command write Shell.txt On disk","GUI: terminal executed")
+                guest.command("cat Shell.txt","On disk")
+                guest.command("gui terminal command ls","GUI: terminal executed")
+                print("PASS: Terminal receives PS/2 keyboard and executes real SamenFS1 commands")
 
                 # Browser contains honest local Home and Help screens.
                 click_logical(307,445)

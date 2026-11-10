@@ -238,10 +238,10 @@ impl Framebuffer {
 }
 
 #[derive(Clone,Copy,PartialEq,Eq,Debug)]
-pub enum App {Browser,Files,Settings}
+pub enum App {Browser,Files,Terminal}
 impl App {
     pub fn label(self)->&'static str {
-        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Settings=>"Settings"}
+        match self{Self::Browser=>"Browser",Self::Files=>"Files",Self::Terminal=>"Terminal"}
     }
 }
 pub struct Desktop {
@@ -308,12 +308,12 @@ impl Desktop {
         fb.draw_cursor(self.x,self.y);
     }
     fn icon_box(&self,app:App)->(i32,i32,i32,i32){
-        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Settings=>(382,432)};
+        let (a,b)=match app{App::Browser=>(287,334),App::Files=>(334,382),App::Terminal=>(382,432)};
         (a,422,b,471)
     }
     pub fn hit_test(&self,fb:&Framebuffer,x:usize,y:usize)->Option<App>{
         let (lx,ly)=fb.from_screen(x as i32,y as i32);
-        for app in [App::Browser,App::Files,App::Settings]{
+        for app in [App::Browser,App::Files,App::Terminal]{
             let (x0,y0,x1,y1)=self.icon_box(app);
             if lx>=x0 && ly>=y0 && lx<x1 && ly<y1{return Some(app);}
         }
