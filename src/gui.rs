@@ -254,15 +254,19 @@ pub struct Desktop {
 }
 impl Desktop {
     pub fn initialize(fb:&mut Framebuffer)->Option<Self>{
+        kprintln!("GUI init: decode wallpaper");
         // A single JPEG decode at boot instead of scaling and recomposing a
         // tiny, baked-in desktop image on every mouse movement.
         let opts=DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
         let mut decoder=JpegDecoder::new_with_options(ZCursor::new(WALLPAPER),opts);
         let pixels=decoder.decode().ok()?;
         if !fb.install_wallpaper(&pixels){return None;}
+        kprintln!("GUI init: wallpaper installed");
         let mut desktop=Self{x:(fb.width/2) as i32,y:(fb.height/2) as i32,
             selected:None,windows:Manager::new(),scene_redraws:0,cursor_updates:0};
+        kprintln!("GUI init: manager initialized, composing desktop");
         desktop.paint_all(fb);
+        kprintln!("GUI init: composition complete");
         Some(desktop)
     }
     fn paint_logo(&self,fb:&mut Framebuffer){
