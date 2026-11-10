@@ -99,6 +99,73 @@ def verify(iso: Path) -> None:
                 cmd(monitor,"mouse_button 0")
                 guest.wait_for("GUI: selected Files",start=start,timeout=8)
                 print("PASS: physical emulated PS/2 mouse click selects Files dock icon")
+                guest.command("gui windows", "GUI: Files open=true minimized=false")
+                # A previously blue desktop pixel should be inside the new light window.
+                window_dump=root/"window.ppm"
+                cmd(monitor,f"screendump {window_dump}")
+                end=time.monotonic()+5
+                while not window_dump.exists() and time.monotonic()<end: time.sleep(0.04)
+                _,_,window_rgb=ppm_rgb(window_dump)
+                px=(round(h*200/498)*w+round(w*200/692))*3
+                if min(window_rgb[px:px+3])<175:
+                    raise AssertionError("Files window did not render an opaque light surface")
+                print("PASS: Files application window draws above unchanged desktop")
+
+                def click_logical(x: int,y: int) -> None:
+                    move_to(guest,monitor,round(w*x/692),round(h*y/498))
+                    cmd(monitor,"mouse_button 1")
+                    cmd(monitor,"mouse_button 0")
+
+                # Real filesystem changes through pointer clicks, not mocked UI data.
+                click_logical(168,125) # Files toolbar: NEW SAMPLE
+                guest.command("ls","Welcome.txt")
+                guest.command("cat Welcome.txt","Welcome to Samen OS")
+                print("PASS: Files window creates persistent SamenFS1 file")
+                click_logical(154,184) # Select first file row
+                guest.command("gui windows","GUI: Files open=true")
+
+                # Grab titlebar while holding PS/2 left mouse button and drag.
+                guest.command("gui windows","GUI: Files open=true")
+                click_title=(203,88)
+                move_to(guest,monitor,round(w*click_title[0]/692),round(h*click_title[1]/498))
+                cmd(monitor,"mouse_button 1")
+                cmd(monitor,"mouse_move 38 23")
+                cmd(monitor,"mouse_button 0")
+                before=len(guest.log)
+                guest.command("gui windows","GUI: Files open=true")
+                out=guest.log[before:].decode("utf8",errors="replace")
+                match=re.search(r"GUI: Files open=true minimized=false maximized=false rect=(\d+),(\d+)",out)
+                if not match or int(match.group(1))<=117:
+                    raise AssertionError("Window dragging did not update its rectangle: "+out)
+                fx,fy=map(int,match.groups())
+                print(f"PASS: Files window draggable to {(fx,fy)}")
+
+                # Minimize, then restore the same window via the existing dock.
+                click_logical(fx+474-46,fy+13)
+                guest.command("gui windows","GUI: Files open=true minimized=true")
+                click_logical(356,445)
+                guest.command("gui windows","GUI: Files open=true minimized=false")
+                # Close button and dock reopen work independently.
+                click_logical(fx+474-20,fy+13)
+                guest.command("gui windows","GUI: Files open=false")
+                print("PASS: minimize, restore and close controls")
+                click_logical(356,445)
+                guest.command("gui windows","GUI: Files open=true")
+
+                # Settings toggles alter actual in-kernel state.
+                click_logical(408,445)
+                guest.command("gui settings status","GUI: settings glass=true")
+                click_logical(552,195)
+                guest.command("gui settings status","GUI: settings glass=false")
+                print("PASS: Settings glass toggle accepts mouse clicks")
+
+                # Browser contains honest local Home and Help screens.
+                click_logical(307,445)
+                guest.command("gui browser status","GUI: browser help=false")
+                click_logical(215,120)
+                guest.command("gui browser status","GUI: browser help=true")
+                print("PASS: browser local navigation changes visible state")
+
             guest.exit()
         finally:
             guest.close()
