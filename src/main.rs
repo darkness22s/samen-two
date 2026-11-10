@@ -6,9 +6,11 @@ mod arch;
 mod ata;
 mod gui;
 mod ps2;
+mod heap;
 mod windows;
 
 
+extern crate alloc;
 use core::panic::PanicInfo;
 use ata::AtaDisk;
 use samen_kernel::fs::{BlockDevice, Fs, FsError};
@@ -35,7 +37,7 @@ static REQUEST_END: [u64; 2] = [0xadc0e0531bb10d03, 0x9572709f31764c62];
 pub extern "C" fn _start() -> ! {
     arch::serial_init();
     kprintln!("");
-    kprintln!("  Samen OS 0.2 | x86-64 | Rust bare metal");
+    kprintln!("  Samen OS 0.3 | x86-64 | Rust bare metal");
     kprintln!("  Figma-matched graphical desktop + serial recovery shell.");
     kprintln!("  Type 'help' for commands.");
     let mut disk = AtaDisk::probe().ok();
@@ -60,6 +62,7 @@ pub extern "C" fn _start() -> ! {
         if let Some(mut desktop) = gui::Desktop::initialize(&mut fb) {
             let (width,height) = fb.dimensions();
             kprintln!("GUI: ready framebuffer={}x{} bpp=32", width, height);
+            kprintln!("GUI: native 2048x1152 wallpaper, double buffered, separate real dock");
             let mouse = gui::mouse_init();
             kprintln!("GUI: PS/2 mouse {}", if mouse.is_some() { "ready" } else { "unavailable" });
             kprintln!("GUI: Chrome/Files/Settings dock hit areas enabled");
@@ -86,7 +89,11 @@ fn graphics_shell(
         if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
             let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down);
             apply_gui_action(action,fb,desktop,disk,fs);
-            if event.left_pressed { desktop.refresh_files(fb,fs.as_ref()); }
+            // An opened Files window must observe the mounted SamenFS1 tree.
+            // Only sync on the initial Files dock click or a real file action.
+            if event.left_pressed && desktop.hit_test(fb,desktop.x as usize,desktop.y as usize)==Some(gui::App::Files) {
+                desktop.refresh_files(fb,fs.as_ref());
+            }
         }
         let Some(byte) = arch::try_read() else {
             core::hint::spin_loop();
@@ -101,6 +108,7 @@ fn graphics_shell(
                         match command {
                             "gui" | "gui redraw" => { desktop.paint_all(fb); kprintln!("GUI: redrawn"); },
                             "gui status" => kprintln!("GUI: selected {} pointer={},{}", desktop.selected_name(),desktop.x,desktop.y),
+                            "gui render stats" => kprintln!("GUI: redraws={} cursor_updates={}",desktop.scene_redraws,desktop.cursor_updates),
                             "gui windows" => {
                                 for w in desktop.windows.windows.iter() {
                                     kprintln!("GUI: {} open={} minimized={} maximized={} rect={},{},{},{}",w.app.label(),w.open,w.minimized,w.maximized,w.rect.x,w.rect.y,w.rect.w,w.rect.h);
@@ -252,7 +260,7 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
     match command {
         "help" => {
             kprintln!("about             Kernel and filesystem details");
-            kprintln!("gui [status|windows|redraw|browser|files|settings]  Graphical desktop");
+            kprintln!("gui [status|windows|render stats|redraw|browser|files|settings]  Graphical desktop");
             kprintln!("gui settings status / gui browser status  Inspect window controls");
             kprintln!("help              Display this help");
             kprintln!("disk              Show disk status");

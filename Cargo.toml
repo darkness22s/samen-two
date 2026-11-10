@@ -5,6 +5,9 @@ edition = "2024"
 publish = false
 description = "Samen: freestanding x86-64 Rust OS kernel"
 
+[dependencies]
+zune-jpeg = { version = "=0.5.12", default-features = false, features = ["alloc"] }
+
 [lib]
 name = "samen_kernel"
 path = "src/lib.rs"
