@@ -64,6 +64,13 @@ pub fn decode_rgb(data: &[u8], out: &mut [u8]) -> bool {
 mod tests {
     use super::*;
     #[test]
+    fn decodes_lossless_native_wallpaper() {
+        const IMAGE: &[u8]=include_bytes!("../assets/samen-wallpaper-2048.qoi");
+        let mut rgb=std::vec![0u8;2048*1152*3];
+        assert!(decode_rgb(IMAGE,&mut rgb));
+        assert!(rgb[0]<30 && rgb[2]>90);
+    }
+    #[test]
     fn rejects_invalid() {
         assert!(!decode_rgb(b"", &mut [0;3]));
         let mut sample=[0u8;3];

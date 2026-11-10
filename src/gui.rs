@@ -6,14 +6,8 @@
 use alloc::{vec, vec::Vec};
 use core::ptr::{copy_nonoverlapping, read_volatile, write_volatile};
 use crate::{kprintln, ps2::Mouse, windows::{Manager, Action}};
-use zune_jpeg::JpegDecoder;
-use zune_jpeg::zune_core::{
-    bytestream::ZCursor,
-    colorspace::ColorSpace,
-    options::DecoderOptions,
-};
 
-const WALLPAPER: &[u8] = include_bytes!("../assets/source-wallpaper.jpg");
+const WALLPAPER: &[u8] = include_bytes!("../assets/samen-wallpaper-2048.qoi");
 const LOGO_MASK: &[u8] = include_bytes!("../assets/logo-alpha-240x95.bin");
 const WALL_W: usize=2048;
 const WALL_H: usize=1152;
@@ -255,11 +249,10 @@ pub struct Desktop {
 impl Desktop {
     pub fn initialize(fb:&mut Framebuffer)->Option<Self>{
         kprintln!("GUI init: decode wallpaper");
-        // A single JPEG decode at boot instead of scaling and recomposing a
+        // A single lossless QOI decode at boot instead of scaling and recomposing a
         // tiny, baked-in desktop image on every mouse movement.
-        let opts=DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGB);
-        let mut decoder=JpegDecoder::new_with_options(ZCursor::new(WALLPAPER),opts);
-        let pixels=decoder.decode().ok()?;
+        let mut pixels=vec![0u8;WALL_W*WALL_H*3];
+        if !samen_kernel::qoi::decode_rgb(WALLPAPER,&mut pixels){return None;}
         if !fb.install_wallpaper(&pixels){return None;}
         kprintln!("GUI init: wallpaper installed");
         let mut desktop=Self{x:(fb.width/2) as i32,y:(fb.height/2) as i32,
