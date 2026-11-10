@@ -179,6 +179,22 @@ impl Framebuffer {
         let b=(u32::from(c[2])*a+((old>>self.blue_shift)&255)*(255-a)+127)/255;
         self.scene[idx]=(r<<self.red_shift)|(g<<self.green_shift)|(b<<self.blue_shift);
     }
+    pub(crate) fn present_logical_region(&mut self,x:i32,y:i32,w:i32,h:i32){
+        let (x0,y0)=self.to_screen(x,y);
+        let (x1,y1)=self.to_screen(x+w,y+h);
+        let left=x0.max(0).min(self.width as i32) as usize;
+        let right=x1.max(0).min(self.width as i32) as usize;
+        let top=y0.max(0).min(self.height as i32) as usize;
+        let bottom=y1.max(0).min(self.height as i32) as usize;
+        if left>=right||top>=bottom{return;}
+        for py in top..bottom{
+            unsafe {
+                let src=self.scene.as_ptr().add(py*self.width+left);
+                let dst=self.address.add(py*self.pitch+left*4).cast::<u32>();
+                copy_nonoverlapping(src,dst,right-left);
+            }
+        }
+    }
     pub fn present(&mut self){
         // The complete image is composed off-screen; there is never a visible
         // partial redraw with a blank wallpaper or missing windows.
