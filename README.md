@@ -9,7 +9,7 @@
 - **Actual desktop UI, not a screenshot:** the translucent dock, Chrome/Files/Terminal icons, selection feedback and application windows are rendered by Rust code as independent layers. The dock uses a dedicated **native-framebuffer vector renderer with 4×4 subpixel antialiasing**, rather than scaling its geometry up from the logical 692×498 grid. Colors are blended against the real desktop scene at full hardware resolution.
 - **Flicker-resistant compositor:** the scene and wallpaper live in normal RAM; complete scene updates are presented only after composition, while ordinary PS/2 mouse movement restores a small cursor rectangle instead of repainting the screen.
 - **High-resolution output:** Limine requests 1920×1080×32 where the display/video firmware supports it, with correct aspect ratio and framebuffer-mode fallback.
-- **Interactive windows:** click dock icons to open Files, Terminal or Browser; drag title bars; use close, minimize, maximize and restore controls
+- **Interactive HD windows:** click dock icons to open Files, Terminal or Browser; drag title bars; use close, minimize, maximize and restore controls. Every app window draws native-resolution rounded surfaces and smooth Inter-derived glyphs, replacing the low-resolution 5×7 text renderer.
 - **Files:** lists files directly from the mounted SamenFS1 disk; mouse-select to preview, create a real `Welcome.txt`, delete selected files
 - **Terminal:** actual PS/2 keyboard-driven terminal with a persistent SamenFS1 shell. Commands include `help`, `ls`, `cat`, `write`, `rm`, `stat`, `disk`, `pwd`, `echo`, `clear`, `about`, and confirmed `format YES`.
 - **Browser:** interactive local Home/Help screens. HTTP, HTML rendering and networking are **not implemented**, so this is not a web browser yet
@@ -28,7 +28,7 @@ make iso
 make run
 ```
 
-`make run` creates `build/samen-data.img` once (16 MiB) and **never overwrites it** unless explicitly requested. Samen opens its graphical desktop in the QEMU VGA window **and** prints a recovery serial prompt in the terminal. Move the mouse and click the Chrome, Files or Settings icons in the translucent dock; the three kernel-rendered windows will open, with working controls. You can also use `gui status`, `gui windows`, `gui browser`, `gui files`, `gui terminal`, `gui settings status`, `gui browser status`, and `gui redraw` in the terminal. Try:
+`make run` creates `build/samen-data.img` once (16 MiB) and **never overwrites it** unless explicitly requested. Samen opens its graphical desktop in the QEMU VGA window **and** prints a recovery serial prompt in the terminal. Move the mouse and click the Browser, Files or Terminal icons in the translucent dock; the three kernel-rendered windows will open, with working controls. You can also use `gui status`, `gui windows`, `gui browser`, `gui files`, `gui terminal`, `gui terminal status`, `gui browser status`, and `gui redraw` in the terminal. Try:
 
 ```text
 help
@@ -47,7 +47,7 @@ A prebuilt, tested `Samen.iso` is uploaded to the [Samen development release](ht
 
 The original Figma-exported composition is preserved as `assets/source-desktop-figma.png` **for comparison only**, alongside the unmodified original high-resolution `assets/source-wallpaper.jpg`. The SAMEN logo is extracted as an antialiased alpha mask in `assets/logo-alpha-240x95.bin`. At runtime the kernel does **not** draw `assets/samen-desktop.qoi`; it decodes the original wallpaper and paints the dock and icons separately. The assets are embedded into the kernel at build time; the Figma file is never modified.
 
-The initial desktop is visually matched to the supplied design, but independently rendered with higher-resolution assets and proper aspect-correct scaling. Dock hitboxes are mapped through a uniform desktop-space transform; clicking an icon opens or restores its window. The Browser, Files and Settings now have kernel-native interactive windows. Their interiors are provisional because their exact Figma window designs were not supplied. The original desktop artwork remains untouched. The Browser is a local-pages UI rather than a functioning internet browser. The graphical interface currently supports QEMU's legacy PS/2 mouse, not USB HID devices.
+The initial desktop is visually matched to the supplied design, but independently rendered with higher-resolution assets and proper aspect-correct scaling. Dock hitboxes are mapped through a uniform desktop-space transform; clicking an icon opens or restores its window. The Browser, Files and Terminal have native HD application windows with antialiased typography. Their interiors are new implementations; they do not modify your supplied Figma artwork. The original desktop artwork remains untouched. The Browser is a local-pages UI rather than a functioning internet browser. The graphical interface currently supports QEMU's legacy PS/2 mouse and keyboard, not USB HID devices.
 
 ## Storage safety
 
