@@ -40,9 +40,7 @@ jobs:
       - name: QEMU cold boot and three-boot disk persistence check
         run: make test-qemu
 
-      - name: Verify graphical framebuffer and PS/2 pointer interaction
-        run: make test-gui
-      - name: Publish tested ISO to rolling development release
+      - name: Publish boot-tested ISO to rolling development release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -53,3 +51,5 @@ jobs:
               --notes "Bootable x86-64 Rust Samen OS ISO. Raw SamenFS1 data disk is generated separately by make disk."
           fi
           gh release upload samen-dev build/Samen.iso --clobber
+      - name: Verify graphical framebuffer and PS/2 pointer interaction
+        run: make test-gui
