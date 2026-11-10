@@ -4,6 +4,9 @@
 // A freestanding 64-bit kernel. No Linux, userspace, heap, or external runtime.
 mod arch;
 mod ata;
+mod gui;
+mod ps2;
+
 
 use core::panic::PanicInfo;
 use ata::AtaDisk;
@@ -31,8 +34,8 @@ static REQUEST_END: [u64; 2] = [0xadc0e0531bb10d03, 0x9572709f31764c62];
 pub extern "C" fn _start() -> ! {
     arch::serial_init();
     kprintln!("");
-    kprintln!("  Samen OS 0.1 | x86-64 | Rust bare metal");
-    kprintln!("  Serial terminal (COM1, 115200 8N1), no GUI.");
+    kprintln!("  Samen OS 0.2 | x86-64 | Rust bare metal");
+    kprintln!("  Figma-matched graphical desktop + serial recovery shell.");
     kprintln!("  Type 'help' for commands.");
     let mut disk = AtaDisk::probe().ok();
     let mut fs = None;
@@ -51,7 +54,73 @@ pub extern "C" fn _start() -> ! {
         None => kprintln!("  No compatible primary-master IDE disk found."),
     }
     kprintln!("");
+    // GUI uses the Limine framebuffer, but serial commands and SamenFS1 remain alive.
+    if let Some(mut fb) = unsafe { gui::acquire() } {
+        if let Some(mut desktop) = gui::Desktop::initialize(&mut fb) {
+            let (width,height) = fb.dimensions();
+            kprintln!("GUI: ready framebuffer={}x{} bpp=32", width, height);
+            let mouse = gui::mouse_init();
+            kprintln!("GUI: PS/2 mouse {}", if mouse.is_some() { "ready" } else { "unavailable" });
+            kprintln!("GUI: Chrome/Files/Settings dock hit areas enabled");
+            return graphics_shell(&mut fb, &mut desktop, mouse, &mut disk, &mut fs);
+        }
+        kprintln!("GUI: image decode failed; using serial recovery shell.");
+    } else {
+        kprintln!("GUI: no compatible 32-bit RGB framebuffer; using serial recovery shell.");
+    }
     shell(&mut disk, &mut fs)
+}
+
+fn graphics_shell(
+    fb: &mut gui::Framebuffer,
+    desktop: &mut gui::Desktop,
+    mut mouse: Option<ps2::Mouse>,
+    disk: &mut Option<AtaDisk>,
+    fs: &mut Option<Fs>,
+) -> ! {
+    let mut buffer = [0u8; 512];
+    let mut len = 0usize;
+    kprint!("samen> ");
+    loop {
+        if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
+            desktop.on_mouse(fb, event.dx, event.dy, event.left_pressed);
+        }
+        let Some(byte) = arch::try_read() else {
+            core::hint::spin_loop();
+            continue;
+        };
+        match byte {
+            b'\r' | b'\n' => {
+                kprintln!();
+                match core::str::from_utf8(&buffer[..len]) {
+                    Ok(text) => {
+                        let command = text.trim();
+                        match command {
+                            "gui" | "gui redraw" => { desktop.paint_all(fb); kprintln!("GUI: redrawn"); },
+                            "gui status" => kprintln!("GUI: selected {} pointer={},{}", desktop.selected_name(),desktop.x,desktop.y),
+                            "gui browser" | "gui chrome" => desktop.choose(fb, gui::App::Browser),
+                            "gui files" => desktop.choose(fb, gui::App::Files),
+                            "gui settings" => desktop.choose(fb, gui::App::Settings),
+                            _ => dispatch(command,disk,fs),
+                        }
+                    }
+                    Err(_) => kprintln!("Input must be valid UTF-8."),
+                }
+                len=0;
+                kprint!("samen> ");
+            }
+            8 | 127 => {
+                if len>0 {len-=1;arch::write_raw(b"\x08 \x08");}
+            }
+            3 => {len=0;kprintln!("^C");kprint!("samen> ");}
+            32..=126 => {
+                if len<buffer.len()-1 {
+                    buffer[len]=byte;len+=1;arch::write_raw(&[byte]);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn shell(disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) -> ! {
@@ -122,6 +191,7 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
     match command {
         "help" => {
             kprintln!("about             Kernel and filesystem details");
+            kprintln!("gui [status|redraw|browser|files|settings]  Graphical desktop");
             kprintln!("help              Display this help");
             kprintln!("disk              Show disk status");
             kprintln!("ls                List files");
@@ -134,9 +204,10 @@ fn dispatch(line: &str, disk: &mut Option<AtaDisk>, fs: &mut Option<Fs>) {
             kprintln!("exit              Power off (also QEMU test exit)");
         }
         "about" => {
-            kprintln!("Samen 0.1: independent x86-64 Rust kernel using Limine.");
+            kprintln!("Samen 0.2: independent x86-64 Rust kernel using Limine.");
             kprintln!("Single core, serial I/O, ATA PIO, SamenFS1 root directory.");
-            kprintln!("No userspace, processes, GUI, or non-IDE storage yet.");
+            kprintln!("GUI desktop: framebuffer, PS/2 mouse and clickable dock; app windows pending Phase 2.");
+            kprintln!("No userspace, processes, or non-IDE storage yet.");
         }
         "disk" => match disk.as_ref() {
             Some(d) => kprintln!("IDE primary master: {} sectors; mounted: {}", d.sector_count(), fs.is_some()),

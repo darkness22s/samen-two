@@ -7,6 +7,20 @@ on:
   workflow_dispatch:
 
 jobs:
+  compile-only:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-none
+      - name: Rust filesystem and QOI unit tests
+        run: make test
+      - name: Build x64 freestanding kernel
+        run: make kernel
   bare-metal:
     runs-on: ubuntu-latest
     permissions:
@@ -26,6 +40,8 @@ jobs:
       - name: QEMU cold boot and three-boot disk persistence check
         run: make test-qemu
 
+      - name: Verify graphical framebuffer and PS/2 pointer interaction
+        run: make test-gui
       - name: Publish tested ISO to rolling development release
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
