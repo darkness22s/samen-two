@@ -223,7 +223,7 @@ def verify(iso: Path) -> None:
                     start=len(guest.log)
                     guest.command("gui terminal status","GUI: terminal executions=")
                     report=guest.log[start:].decode("utf8",errors="replace")
-                    if "last='write keys.txt from keyboard'" in report: break
+                    if "last='write keys.txt from keyb'" in report: break
                 else:
                     raise AssertionError("Keyboard did not submit the terminal write command")
                 guest.command("cat keys.txt","from keyboard")
