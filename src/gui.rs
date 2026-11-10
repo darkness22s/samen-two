@@ -331,7 +331,7 @@ impl Desktop {
         kprintln!("GUI: opened {} window",app.label());
     }
     pub fn on_mouse(&mut self,fb:&mut Framebuffer,dx:i32,dy:i32,
-        left_pressed:bool,left_down:bool)->Action {
+        left_pressed:bool,left_down:bool,fs:Option<&samen_kernel::fs::Fs>)->Action {
         let old_x=self.x;let old_y=self.y;
         let speed=if self.windows.fast_pointer{2}else{1};
         self.x=(self.x+dx*speed).clamp(0,fb.width.saturating_sub(1) as i32);
@@ -344,6 +344,7 @@ impl Desktop {
         if left_pressed{
             if let Some(app)=self.hit_test(fb,self.x as usize,self.y as usize){
                 self.selected=Some(app);
+                if app==App::Files{self.windows.sync_files(fs);}
                 self.windows.open(app);
                 kprintln!("GUI: selected {}",app.label());
                 kprintln!("GUI: opened {} window",app.label());
@@ -355,7 +356,10 @@ impl Desktop {
         if !left_down {self.windows.release();}
         // Entire scene is recomposed only when window state actually changes.
         // Pure pointer motion touches fewer than 600 pixels, not 2 million.
-        if repaint || (drag_before && (dx!=0 || dy!=0)){
+        if action!=Action::None{
+            // The file action handler will redraw once after the storage
+            // operation completes; skip the redundant pre-action redraw.
+        }else if repaint || (drag_before && (dx!=0 || dy!=0)){
             self.paint_all(fb);
         } else {
             self.cursor_updates+=1;

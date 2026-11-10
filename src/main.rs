@@ -88,13 +88,8 @@ fn graphics_shell(
     kprint!("samen> ");
     loop {
         if let Some(event) = mouse.as_mut().and_then(|m| m.poll()) {
-            let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down);
+            let action=desktop.on_mouse(fb,event.dx,event.dy,event.left_pressed,event.left_down,fs.as_ref());
             apply_gui_action(action,fb,desktop,disk,fs);
-            // An opened Files window must observe the mounted SamenFS1 tree.
-            // Only sync on the initial Files dock click or a real file action.
-            if event.left_pressed && desktop.hit_test(fb,desktop.x as usize,desktop.y as usize)==Some(gui::App::Files) {
-                desktop.refresh_files(fb,fs.as_ref());
-            }
         }
         let Some(byte) = arch::try_read() else {
             core::hint::spin_loop();
@@ -189,7 +184,7 @@ fn apply_gui_action(
             }
         }
     }
-    desktop.refresh_files(fb,fs.as_ref());
+    desktop.windows.sync_files(fs.as_ref());
     desktop.paint_all(fb);
 }
 
